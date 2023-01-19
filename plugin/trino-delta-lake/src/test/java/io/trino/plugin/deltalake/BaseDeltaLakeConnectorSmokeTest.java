@@ -456,7 +456,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
     public void testDropColumnNotSupported()
     {
         registerTableFromResources("testdropcolumn", "io/trino/plugin/deltalake/testing/resources/databricks/nation", getQueryRunner());
-        assertQueryFails("ALTER TABLE testdropcolumn DROP COLUMN comment", ".*This connector does not support dropping columns.*");
+        assertQueryFails("ALTER TABLE testdropcolumn DROP COLUMN comment", "Cannot drop column with the column mapping: NONE");
     }
 
     @Test
