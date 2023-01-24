@@ -44,6 +44,7 @@ import io.trino.plugin.deltalake.statistics.ExtendedStatisticsAccess;
 import io.trino.plugin.deltalake.transactionlog.AddFileEntry;
 import io.trino.plugin.deltalake.transactionlog.CdfFileEntry;
 import io.trino.plugin.deltalake.transactionlog.CommitInfoEntry;
+import io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.ColumnMappingMode;
 import io.trino.plugin.deltalake.transactionlog.DeltaLakeTransactionLogEntry;
 import io.trino.plugin.deltalake.transactionlog.MetadataEntry;
 import io.trino.plugin.deltalake.transactionlog.MetadataEntry.Format;
@@ -267,9 +268,11 @@ public class DeltaLakeMetadata
             LAZY_SIMPLE_SERDE_CLASS,
             SEQUENCEFILE_INPUT_FORMAT_CLASS,
             HIVE_SEQUENCEFILE_OUTPUT_FORMAT_CLASS);
+    // Operation names in Delta Lake https://github.com/delta-io/delta/blob/master/core/src/main/scala/org/apache/spark/sql/delta/DeltaOperations.scala
     public static final String CREATE_TABLE_AS_OPERATION = "CREATE TABLE AS SELECT";
     public static final String CREATE_TABLE_OPERATION = "CREATE TABLE";
     public static final String ADD_COLUMN_OPERATION = "ADD COLUMNS";
+    public static final String RENAME_COLUMN_OPERATION = "RENAME COLUMN";
     public static final String INSERT_OPERATION = "WRITE";
     public static final String MERGE_OPERATION = "MERGE";
     public static final String OPTIMIZE_OPERATION = "OPTIMIZE";
@@ -1175,6 +1178,82 @@ public class DeltaLakeMetadata
         }
         catch (Exception e) {
             throw new TrinoException(DELTA_LAKE_BAD_WRITE, format("Unable to add '%s' column for: %s.%s", newColumnMetadata.getName(), handle.getSchemaName(), handle.getTableName()), e);
+        }
+    }
+
+    @Override
+    public void renameColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle columnHandle, String newColumnName)
+    {
+        DeltaLakeTableHandle table = (DeltaLakeTableHandle) tableHandle;
+        DeltaLakeColumnHandle deltaLakeColumn = (DeltaLakeColumnHandle) columnHandle;
+        String sourceColumnName = deltaLakeColumn.getName();
+
+        if (changeDataFeedEnabled(table.getMetadataEntry()) && CHANGE_DATA_FEED_COLUMN_NAMES.contains(newColumnName)) {
+            throw new TrinoException(NOT_SUPPORTED, "Unable to rename to %s columns when change data feed is enabled: %s".formatted(CHANGE_DATA_FEED_COLUMN_NAMES, newColumnName));
+        }
+
+        ColumnMappingMode columnMappingMode = getColumnMappingMode(table.getMetadataEntry());
+        if (columnMappingMode != ColumnMappingMode.NAME && columnMappingMode != ColumnMappingMode.ID) {
+            throw new TrinoException(NOT_SUPPORTED, "Cannot rename column with the column mapping: " + columnMappingMode);
+        }
+
+        ConnectorTableMetadata tableMetadata = getTableMetadata(session, table);
+        long commitVersion = table.getReadVersion() + 1;
+        List<String> partitionColumns = getPartitionedBy(tableMetadata.getProperties()).stream()
+                .map(columnName -> columnName.equals(sourceColumnName) ? newColumnName : columnName)
+                .collect(toImmutableList());
+
+        List<DeltaLakeColumnHandle> columns = tableMetadata.getColumns().stream()
+                .filter(column -> !column.isHidden())
+                .map(column -> toColumnHandle(
+                        column.getName().equals(sourceColumnName) ? ColumnMetadata.builderFrom(column).setName(newColumnName).build() : column,
+                        column.getName().equals(sourceColumnName) ? newColumnName : column.getName(),
+                        column.getType(),
+                        partitionColumns))
+                .collect(toImmutableList());
+        Map<String, String> columnComments = getColumnComments(table.getMetadataEntry()).entrySet().stream()
+                .map(column -> column.getKey().equals(sourceColumnName) ? Map.entry(newColumnName, column.getValue()) : column)
+                .collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
+        Map<String, Boolean> columnsNullability = getColumnsNullability(table.getMetadataEntry()).entrySet().stream()
+                .map(column -> column.getKey().equals(sourceColumnName) ? Map.entry(newColumnName, column.getValue()) : column)
+                .collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
+        Map<String, Map<String, Object>> columnMetadata = getColumnsMetadata(table.getMetadataEntry()).entrySet().stream()
+                .map(column -> column.getKey().equals(sourceColumnName) ? Map.entry(newColumnName, column.getValue()) : column)
+                .collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
+        try {
+            TransactionLogWriter transactionLogWriter = transactionLogWriterFactory.newWriter(session, table.getLocation());
+            appendTableEntries(
+                    commitVersion,
+                    transactionLogWriter,
+                    table.getMetadataEntry().getId(),
+                    columns,
+                    partitionColumns,
+                    columnComments,
+                    columnsNullability,
+                    columnMetadata,
+                    table.getMetadataEntry().getConfiguration(),
+                    RENAME_COLUMN_OPERATION,
+                    session,
+                    Optional.ofNullable(table.getMetadataEntry().getDescription()),
+                    getProtocolEntry(session, table.getSchemaTableName()));
+            transactionLogWriter.flush();
+
+            statisticsAccess.readExtendedStatistics(session, table.getLocation()).ifPresent(existingStatistics -> {
+                ExtendedStatistics statistics = new ExtendedStatistics(
+                        existingStatistics.getModelVersion(),
+                        existingStatistics.getAlreadyAnalyzedModifiedTimeMax(),
+                        existingStatistics.getColumnStatistics().entrySet().stream()
+                                .map(stats -> stats.getKey().equals(sourceColumnName)
+                                        ? Map.entry(newColumnName, DeltaLakeColumnStatistics.create(stats.getValue().getTotalSizeInBytes(), stats.getValue().getNdvSummary()))
+                                        : stats)
+                                .collect(toImmutableMap(Entry::getKey, Entry::getValue)),
+                        existingStatistics.getAnalyzedColumns()
+                                .map(analyzedColumns -> analyzedColumns.stream().map(column -> column.equals(sourceColumnName) ? newColumnName : column).collect(toImmutableSet())));
+                statisticsAccess.updateExtendedStatistics(session, table.getLocation(), statistics);
+            });
+        }
+        catch (Exception e) {
+            throw new TrinoException(DELTA_LAKE_BAD_WRITE, format("Unable to rename '%s' column for: %s.%s", sourceColumnName, table.getSchemaName(), table.getTableName()), e);
         }
     }
 
