@@ -189,6 +189,7 @@ import static io.trino.plugin.deltalake.metastore.HiveMetastoreBackedDeltaLakeMe
 import static io.trino.plugin.deltalake.metastore.HiveMetastoreBackedDeltaLakeMetastore.TABLE_PROVIDER_VALUE;
 import static io.trino.plugin.deltalake.procedure.DeltaLakeTableProcedureId.OPTIMIZE;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.APPEND_ONLY_CONFIGURATION_KEY;
+import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.changeDataFeedEnabled;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.extractColumnMetadata;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.extractPartitionColumns;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.extractSchema;
@@ -291,6 +292,12 @@ public class DeltaLakeMetadata
             .build();
     private static final String ENABLE_NON_CONCURRENT_WRITES_CONFIGURATION_KEY = "delta.enable-non-concurrent-writes";
     public static final Set<String> UPDATABLE_TABLE_PROPERTIES = ImmutableSet.of(CHANGE_DATA_FEED_ENABLED_PROPERTY);
+
+    public static final Set<String> CHANGE_DATA_FEED_COLUMN_NAMES = ImmutableSet.<String>builder()
+            .add("_change_type")
+            .add("_commit_version")
+            .add("_commit_timestamp")
+            .build();
 
     private final DeltaLakeMetastore metastore;
     private final TrinoFileSystemFactory fileSystemFactory;
@@ -705,6 +712,9 @@ public class DeltaLakeMetadata
         String deltaLogDirectory = getTransactionLogDir(location);
         Optional<Long> checkpointInterval = getCheckpointInterval(tableMetadata.getProperties());
         Optional<Boolean> changeDataFeedEnabled = getChangeDataFeedEnabled(tableMetadata.getProperties());
+        if (changeDataFeedEnabled.isPresent() && changeDataFeedEnabled.get()) {
+            checkChangeDataFeedColumnNames(tableMetadata.getColumns().stream().map(ColumnMetadata::getName).collect(Collectors.toSet()));
+        }
 
         try {
             TrinoFileSystem fileSystem = fileSystemFactory.create(session);
@@ -764,6 +774,14 @@ public class DeltaLakeMetadata
                 principalPrivileges);
     }
 
+    private static void checkChangeDataFeedColumnNames(Set<String> columnNames)
+    {
+        Set<String> conflicts = Sets.intersection(columnNames, CHANGE_DATA_FEED_COLUMN_NAMES);
+        if (!conflicts.isEmpty()) {
+            throw new TrinoException(NOT_SUPPORTED, "Unable to use %s when change data feed is enabled: %s".formatted(CHANGE_DATA_FEED_COLUMN_NAMES, conflicts));
+        }
+    }
+
     public static Table buildTable(ConnectorSession session, SchemaTableName schemaTableName, String location, boolean isExternal)
     {
         Table.Builder tableBuilder = Table.builder()
@@ -810,6 +828,7 @@ public class DeltaLakeMetadata
     public DeltaLakeOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, Optional<ConnectorTableLayout> layout, RetryMode retryMode)
     {
         validateTableColumns(tableMetadata);
+        checkChangeDataFeedColumnNames(tableMetadata.getColumns().stream().map(ColumnMetadata::getName).collect(toImmutableSet()));
 
         SchemaTableName schemaTableName = tableMetadata.getTable();
         String schemaName = schemaTableName.getSchemaName();
@@ -1104,6 +1123,9 @@ public class DeltaLakeMetadata
     {
         DeltaLakeTableHandle handle = checkValidTableHandle(tableHandle);
         checkSupportedWriterVersion(session, handle.getSchemaTableName());
+        if (changeDataFeedEnabled(handle.getMetadataEntry()) && CHANGE_DATA_FEED_COLUMN_NAMES.contains(newColumnMetadata.getName())) {
+            throw new TrinoException(NOT_SUPPORTED, "Unable to add %s columns when change data feed is enabled: %s".formatted(CHANGE_DATA_FEED_COLUMN_NAMES, newColumnMetadata.getName()));
+        }
 
         if (!newColumnMetadata.isNullable() && !metastore.getValidDataFiles(handle.getSchemaTableName(), session).isEmpty()) {
             throw new TrinoException(DELTA_LAKE_BAD_WRITE, format("Unable to add NOT NULL column '%s' for non-empty table: %s.%s", newColumnMetadata.getName(), handle.getSchemaName(), handle.getTableName()));
@@ -1840,6 +1862,11 @@ public class DeltaLakeMetadata
             boolean changeDataFeedEnabled = (Boolean) properties.get(CHANGE_DATA_FEED_ENABLED_PROPERTY)
                     .orElseThrow(() -> new IllegalArgumentException("The change_data_feed_enabled property cannot be empty"));
             if (changeDataFeedEnabled) {
+                Set<String> columnNames = getColumns(handle.getMetadataEntry()).stream().map(DeltaLakeColumnHandle::getName).collect(toImmutableSet());
+                Set<String> conflicts = Sets.intersection(columnNames, CHANGE_DATA_FEED_COLUMN_NAMES);
+                if (!conflicts.isEmpty()) {
+                    throw new TrinoException(NOT_SUPPORTED, "Unable to enable change data feed when the table contains %s columns: %s".formatted(CHANGE_DATA_FEED_COLUMN_NAMES, conflicts));
+                }
                 requiredWriterVersion = max(requiredWriterVersion, CDF_SUPPORTED_WRITER_VERSION);
             }
             Map<String, String> configuration = new HashMap<>(handle.getMetadataEntry().getConfiguration());
