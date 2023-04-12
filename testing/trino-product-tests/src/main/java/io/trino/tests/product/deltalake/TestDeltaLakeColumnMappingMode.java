@@ -332,6 +332,51 @@ public class TestDeltaLakeColumnMappingMode
 
     @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_OSS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, PROFILE_SPECIFIC_TESTS}, dataProvider = "columnMappingDataProvider")
     @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    public void testDropAndAddColumnShowStatsForColumnMappingMode(String mode)
+    {
+        String tableName = "test_dl_drop_add_column_show_stats_for_column_mapping_mode_" + randomNameSuffix();
+
+        onDelta().executeQuery("" +
+                "CREATE TABLE default." + tableName +
+                " (a_number INT, b_number INT)" +
+                " USING delta " +
+                " LOCATION 's3://" + bucketName + "/databricks-compatibility-test-" + tableName + "'" +
+                " TBLPROPERTIES (" +
+                " 'delta.columnMapping.mode' = '" + mode + "'" +
+                ")");
+        try {
+            onDelta().executeQuery("INSERT INTO default." + tableName + " VALUES (1, 10), (2, 20), (null, null)");
+            onTrino().executeQuery("ANALYZE delta.default." + tableName);
+            assertThat(onTrino().executeQuery("SHOW STATS FOR delta.default." + tableName))
+                    .containsOnly(ImmutableList.of(
+                            row("a_number", null, 2.0, 0.33333333333, null, "1", "2"),
+                            row("b_number", null, 2.0, 0.33333333333, null, "10", "20"),
+                            row(null, null, null, null, 3.0, null, null)));
+
+            // Ensure SHOW STATS doesn't return stats for the restored column
+            onDelta().executeQuery("ALTER TABLE default." + tableName + " DROP COLUMN b_number");
+            onDelta().executeQuery("ALTER TABLE default." + tableName + " ADD COLUMN b_number INT");
+            assertThat(onTrino().executeQuery("SHOW STATS FOR delta.default." + tableName))
+                    .containsOnly(ImmutableList.of(
+                            row("a_number", null, 2.0, 0.33333333333, null, "1", "2"),
+                            row("b_number", null, null, null, null, null, null),
+                            row(null, null, null, null, 3.0, null, null)));
+
+            // SHOW STATS returns the expected stats after executing ANALYZE
+            onTrino().executeQuery("ANALYZE delta.default." + tableName);
+            assertThat(onTrino().executeQuery("SHOW STATS FOR delta.default." + tableName))
+                    .containsOnly(ImmutableList.of(
+                            row("a_number", null, 2.0, 0.33333333333, null, "1", "2"),
+                            row("b_number", 0.0, 0.0, 1.0, null, null, null),
+                            row(null, null, null, null, 3.0, null, null)));
+        }
+        finally {
+            dropDeltaTableWithRetry("default." + tableName);
+        }
+    }
+
+    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_OSS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, PROFILE_SPECIFIC_TESTS}, dataProvider = "columnMappingDataProvider")
+    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
     public void testUnsupportedOperationsColumnMappingMode(String mode)
     {
         String tableName = "test_dl_unsupported_column_mapping_mode_" + randomNameSuffix();

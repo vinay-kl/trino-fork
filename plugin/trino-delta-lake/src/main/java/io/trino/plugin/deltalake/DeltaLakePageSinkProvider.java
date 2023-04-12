@@ -160,7 +160,7 @@ public class DeltaLakePageSinkProvider
         boolean cdfEnabled = changeDataFeedEnabled(tableHandle.getMetadataEntry());
         ColumnMappingMode columnMappingMode = getColumnMappingMode(tableHandle.getMetadataEntry());
         if (cdfEnabled && columnMappingMode != NONE) {
-            // TODO Support CDF for tables with 'id' and 'name' column mapping
+            // TODO https://github.com/trinodb/trino/issues/16967 Support CDF for tables with 'id' and 'name' column mapping
             throw new TrinoException(NOT_SUPPORTED, "Unsupported column mapping mode for tables with change data feed enabled: " + columnMappingMode.name().toLowerCase(ENGLISH));
         }
 
