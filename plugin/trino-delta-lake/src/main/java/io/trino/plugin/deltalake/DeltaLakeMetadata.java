@@ -194,6 +194,7 @@ import static io.trino.plugin.deltalake.metastore.HiveMetastoreBackedDeltaLakeMe
 import static io.trino.plugin.deltalake.metastore.HiveMetastoreBackedDeltaLakeMetastore.TABLE_PROVIDER_VALUE;
 import static io.trino.plugin.deltalake.procedure.DeltaLakeTableProcedureId.OPTIMIZE;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.APPEND_ONLY_CONFIGURATION_KEY;
+import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.ColumnMappingMode.NONE;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.changeDataFeedEnabled;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.extractPartitionColumns;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.extractSchema;
@@ -285,9 +286,8 @@ public class DeltaLakeMetadata
     public static final int DEFAULT_READER_VERSION = 1;
     public static final int DEFAULT_WRITER_VERSION = 2;
     // The highest reader and writer versions Trino supports writing to
-    public static final int MAX_WRITER_VERSION = 4;
+    public static final int MAX_WRITER_VERSION = 5;
     private static final int CDF_SUPPORTED_WRITER_VERSION = 4;
-    private static final int MAX_DML_WRITER_VERSION = 5;
 
     // Matches the dummy column Databricks stores in the metastore
     private static final List<Column> DUMMY_DATA_COLUMNS = ImmutableList.of(
@@ -1048,6 +1048,11 @@ public class DeltaLakeMetadata
     {
         DeltaLakeTableHandle handle = checkValidTableHandle(tableHandle);
         checkSupportedWriterVersion(session, handle.getSchemaTableName());
+        ColumnMappingMode columnMappingMode = getColumnMappingMode(handle.getMetadataEntry());
+        if (columnMappingMode != NONE) {
+            // TODO https://github.com/trinodb/trino/issues/12638 Support setting a table comment for id and name column mapping mode
+            throw new TrinoException(NOT_SUPPORTED, "Setting a table comment with column mapping %s is not supported".formatted(columnMappingMode.name().toLowerCase(ENGLISH)));
+        }
 
         ConnectorTableMetadata tableMetadata = getTableMetadata(session, handle);
 
@@ -1088,6 +1093,11 @@ public class DeltaLakeMetadata
         DeltaLakeTableHandle deltaLakeTableHandle = (DeltaLakeTableHandle) tableHandle;
         DeltaLakeColumnHandle deltaLakeColumnHandle = (DeltaLakeColumnHandle) column;
         checkSupportedWriterVersion(session, deltaLakeTableHandle.getSchemaTableName());
+        ColumnMappingMode columnMappingMode = getColumnMappingMode(deltaLakeTableHandle.getMetadataEntry());
+        if (columnMappingMode != NONE) {
+            // TODO https://github.com/trinodb/trino/issues/12638 Support setting a column comment for id and name column mapping mode
+            throw new TrinoException(NOT_SUPPORTED, "Setting a column comment with column mapping %s is not supported".formatted(columnMappingMode.name().toLowerCase(ENGLISH)));
+        }
 
         ConnectorTableMetadata tableMetadata = getTableMetadata(session, deltaLakeTableHandle);
 
@@ -1133,6 +1143,11 @@ public class DeltaLakeMetadata
     {
         DeltaLakeTableHandle handle = checkValidTableHandle(tableHandle);
         checkSupportedWriterVersion(session, handle.getSchemaTableName());
+        ColumnMappingMode columnMappingMode = getColumnMappingMode(handle.getMetadataEntry());
+        if (columnMappingMode != NONE) {
+            // TODO https://github.com/trinodb/trino/issues/12638 Support adding a column for id and name column mapping mode
+            throw new TrinoException(NOT_SUPPORTED, "Adding a column with column mapping %s is not supported".formatted(columnMappingMode.name().toLowerCase(ENGLISH)));
+        }
         if (changeDataFeedEnabled(handle.getMetadataEntry()) && CHANGE_DATA_FEED_COLUMN_NAMES.contains(newColumnMetadata.getName())) {
             throw new TrinoException(NOT_SUPPORTED, "Column name %s is forbidden when change data feed is enabled".formatted(newColumnMetadata.getName()));
         }
@@ -1255,9 +1270,7 @@ public class DeltaLakeMetadata
                     format("Inserts are not enabled on the %1$s filesystem in order to avoid eventual data corruption which may be caused by concurrent data modifications on the table. " +
                             "Writes to the %1$s filesystem can be however enabled with the '%2$s' configuration property.", fileSystem, ENABLE_NON_CONCURRENT_WRITES_CONFIGURATION_KEY));
         }
-        checkUnsupportedGeneratedColumns(table.getMetadataEntry());
-        checkUnsupportedDmlColumnMapping(table.getMetadataEntry());
-        checkSupportedDmlWriterVersion(session, table.getSchemaTableName());
+        checkUnsupportedWriter(session, table.getSchemaTableName(), table.getMetadataEntry());
 
         List<DeltaLakeColumnHandle> inputColumns = columns.stream()
                 .map(handle -> (DeltaLakeColumnHandle) handle)
@@ -1429,9 +1442,7 @@ public class DeltaLakeMetadata
         if (!getCheckConstraints(handle.getMetadataEntry()).isEmpty()) {
             throw new TrinoException(NOT_SUPPORTED, "Writing to tables with CHECK constraints is not supported");
         }
-        checkUnsupportedGeneratedColumns(handle.getMetadataEntry());
-        checkUnsupportedDmlColumnMapping(handle.getMetadataEntry());
-        checkSupportedDmlWriterVersion(session, handle.getSchemaTableName());
+        checkUnsupportedWriter(session, handle.getSchemaTableName(), handle.getMetadataEntry());
 
         ConnectorTableMetadata tableMetadata = getTableMetadata(session, handle);
 
@@ -1648,6 +1659,11 @@ public class DeltaLakeMetadata
                             "Writes to the %1$s filesystem can be however enabled with the '%2$s' configuration property.", fileSystem, ENABLE_NON_CONCURRENT_WRITES_CONFIGURATION_KEY));
         }
         checkSupportedWriterVersion(session, table.getSchemaTableName());
+        ColumnMappingMode columnMappingMode = getColumnMappingMode(table.getMetadataEntry());
+        if (columnMappingMode != NONE) {
+            // TODO https://github.com/trinodb/trino/issues/12638 Support 'optimize' table procedure for id and name column mapping mode
+            throw new TrinoException(NOT_SUPPORTED, "Executing 'optimize' procedure with column mapping %s is not supported".formatted(columnMappingMode.name().toLowerCase(ENGLISH)));
+        }
 
         return new BeginTableExecuteResult<>(
                 executeHandle.withProcedureHandle(optimizeHandle.withCurrentVersion(table.getReadVersion())),
@@ -1738,29 +1754,22 @@ public class DeltaLakeMetadata
         }
     }
 
+    private void checkUnsupportedWriter(ConnectorSession session, SchemaTableName schemaTableName, MetadataEntry metadataEntry)
+    {
+        checkSupportedWriterVersion(session, schemaTableName);
+        checkUnsupportedGeneratedColumns(metadataEntry);
+        ColumnMappingMode columnMappingMode = getColumnMappingMode(metadataEntry);
+        if (!(columnMappingMode == NONE || columnMappingMode == ColumnMappingMode.NAME)) {
+            throw new TrinoException(NOT_SUPPORTED, "Writing with column mapping %s is not supported".formatted(columnMappingMode.name().toLowerCase(ENGLISH)));
+        }
+        // TODO: Check writer-features
+    }
+
     private void checkUnsupportedGeneratedColumns(MetadataEntry metadataEntry)
     {
         Map<String, String> columnGeneratedExpressions = getGeneratedColumnExpressions(metadataEntry);
         if (!columnGeneratedExpressions.isEmpty()) {
             throw new TrinoException(NOT_SUPPORTED, "Writing to tables with generated columns is not supported");
-        }
-    }
-
-    private void checkUnsupportedDmlColumnMapping(MetadataEntry metadataEntry)
-    {
-        ColumnMappingMode columnMappingMode = getColumnMappingMode(metadataEntry);
-        if (!(columnMappingMode == ColumnMappingMode.NONE || columnMappingMode == ColumnMappingMode.NAME)) {
-            throw new TrinoException(NOT_SUPPORTED, "Writing with column mapping %s is not supported".formatted(columnMappingMode.name().toLowerCase(ENGLISH)));
-        }
-    }
-
-    private void checkSupportedDmlWriterVersion(ConnectorSession session, SchemaTableName schemaTableName)
-    {
-        int requiredWriterVersion = getProtocolEntry(session, schemaTableName).getMinWriterVersion();
-        if (requiredWriterVersion > MAX_DML_WRITER_VERSION) {
-            throw new TrinoException(
-                    NOT_SUPPORTED,
-                    format("Table %s requires Delta Lake writer version %d which is not supported", schemaTableName, requiredWriterVersion));
         }
     }
 
@@ -2383,7 +2392,12 @@ public class DeltaLakeMetadata
         Map<String, DeltaLakeColumnStatistics> mergedColumnStatistics = newColumnStatistics.entrySet().stream()
                 .map(entry -> {
                     String columnName = entry.getKey();
-                    return Map.entry(physicalColumnNameMapping.map(mapping -> mapping.get(columnName)).orElse(columnName), entry.getValue());
+                    String physicalColumnName = columnName;
+                    if (physicalColumnNameMapping.isPresent()) {
+                        physicalColumnName = physicalColumnNameMapping.get().get(columnName);
+                        requireNonNull(physicalColumnName, () -> "%s doesn't exist in %s".formatted(columnName, physicalColumnNameMapping));
+                    }
+                    return Map.entry(physicalColumnName, entry.getValue());
                 })
                 .collect(toImmutableMap(
                         Entry::getKey,
@@ -2415,7 +2429,13 @@ public class DeltaLakeMetadata
 
         analyzedColumns.ifPresent(analyzeColumns -> {
             Set<String> analyzePhysicalColumns = analyzeColumns.stream()
-                    .map(columnName -> physicalColumnNameMapping.map(mapping -> mapping.get(columnName)).orElse(columnName))
+                    .map(columnName -> {
+                        if (physicalColumnNameMapping.isPresent()) {
+                            String physicalColumnName = physicalColumnNameMapping.get().get(columnName);
+                            return requireNonNull(physicalColumnName, () -> "%s doesn't exist in %s".formatted(columnName, physicalColumnNameMapping));
+                        }
+                        return columnName;
+                    })
                     .collect(toImmutableSet());
             if (!mergedColumnStatistics.keySet().equals(analyzePhysicalColumns)) {
                 // sanity validation

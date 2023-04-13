@@ -375,6 +375,98 @@ public class TestDeltaLakeColumnMappingMode
         }
     }
 
+    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_OSS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, PROFILE_SPECIFIC_TESTS})
+    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    public void testChangeColumnMappingAndShowStatsForColumnMappingMode()
+    {
+        String tableName = "test_dl_change_column_mapping_and_show_stats_for_column_mapping_mode_" + randomNameSuffix();
+
+        onDelta().executeQuery("" +
+                "CREATE TABLE default." + tableName +
+                " (a_number INT, b_number INT)" +
+                " USING delta " +
+                " LOCATION 's3://" + bucketName + "/databricks-compatibility-test-" + tableName + "'" +
+                " TBLPROPERTIES (" +
+                " 'delta.columnMapping.mode'='none'," +
+                " 'delta.minReaderVersion'='2'," +
+                " 'delta.minWriterVersion'='5')");
+        try {
+            onDelta().executeQuery("INSERT INTO default." + tableName + " VALUES (1, 10), (2, 20), (null, null)");
+            onTrino().executeQuery("ANALYZE delta.default." + tableName);
+            assertThat(onTrino().executeQuery("SHOW STATS FOR delta.default." + tableName))
+                    .containsOnly(
+                            row("a_number", null, 2.0, 0.33333333333, null, "1", "2"),
+                            row("b_number", null, 2.0, 0.33333333333, null, "10", "20"),
+                            row(null, null, null, null, 3.0, null, null));
+
+            onDelta().executeQuery("ALTER TABLE default." + tableName + " SET TBLPROPERTIES('delta.columnMapping.mode'='name')");
+            onDelta().executeQuery("ALTER TABLE default." + tableName + " DROP COLUMN b_number");
+            onDelta().executeQuery("ALTER TABLE default." + tableName + " ADD COLUMN b_number INT");
+
+            // Ensure SHOW STATS doesn't return stats for the restored column
+            assertThat(onTrino().executeQuery("SHOW STATS FOR delta.default." + tableName))
+                    .containsOnly(
+                            row("a_number", null, 2.0, 0.33333333333, null, "1", "2"),
+                            row("b_number", null, null, null, null, null, null),
+                            row(null, null, null, null, 3.0, null, null));
+
+            // SHOW STATS returns the expected stats after executing ANALYZE
+            onTrino().executeQuery("ANALYZE delta.default." + tableName);
+            assertThat(onTrino().executeQuery("SHOW STATS FOR delta.default." + tableName))
+                    .containsOnly(
+                            row("a_number", null, 2.0, 0.33333333333, null, "1", "2"),
+                            row("b_number", 0.0, 0.0, 1.0, null, null, null),
+                            row(null, null, null, null, 3.0, null, null));
+        }
+        finally {
+            dropDeltaTableWithRetry("default." + tableName);
+        }
+    }
+
+    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_OSS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, PROFILE_SPECIFIC_TESTS}, dataProvider = "changeColumnMappingDataProvider")
+    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    public void testChangeColumnMappingMode(String sourceMappingMode, String targetMappingMode, boolean supported)
+    {
+        String tableName = "test_dl_change_column_mapping_mode_" + randomNameSuffix();
+
+        onDelta().executeQuery("" +
+                "CREATE TABLE default." + tableName +
+                " (a_number INT)" +
+                " USING delta " +
+                " LOCATION 's3://" + bucketName + "/databricks-compatibility-test-" + tableName + "'" +
+                " TBLPROPERTIES (" +
+                " 'delta.columnMapping.mode'='" + sourceMappingMode + "'," +
+                " 'delta.minReaderVersion'='2'," +
+                " 'delta.minWriterVersion'='5')");
+        try {
+            if (supported) {
+                onDelta().executeQuery("ALTER TABLE default." + tableName + " SET TBLPROPERTIES('delta.columnMapping.mode'='" + targetMappingMode + "')");
+            }
+            else {
+                assertQueryFailure(() -> onDelta().executeQuery("ALTER TABLE default." + tableName + " SET TBLPROPERTIES('delta.columnMapping.mode'='" + targetMappingMode + "')"))
+                        .hasMessageContaining("Changing column mapping mode from '%s' to '%s' is not supported".formatted(sourceMappingMode, targetMappingMode));
+            }
+        }
+        finally {
+            dropDeltaTableWithRetry("default." + tableName);
+        }
+    }
+
+    @DataProvider
+    public Object[][] changeColumnMappingDataProvider()
+    {
+        // Update testChangeColumnMappingAndShowStatsForColumnMappingMode if Delta Lake changes their behavior
+        return new Object[][] {
+                // sourceMappingMode targetMappingMode supported
+                {"none", "id", false},
+                {"none", "name", true},
+                {"id", "none", false},
+                {"id", "name", false},
+                {"name", "none", false},
+                {"name", "id", false},
+        };
+    }
+
     @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_OSS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, PROFILE_SPECIFIC_TESTS}, dataProvider = "columnMappingDataProvider")
     @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
     public void testUnsupportedOperationsColumnMappingMode(String mode)
@@ -408,10 +500,14 @@ public class TestDeltaLakeColumnMappingMode
                 assertQueryFailure(() -> onTrino().executeQuery("UPDATE delta.default." + tableName + " SET a_string = 'test'"))
                         .hasMessageContaining("Writing with column mapping id is not supported");
             }
+            assertQueryFailure(() -> onTrino().executeQuery("COMMENT ON TABLE delta.default." + tableName + " IS 'test comment'"))
+                    .hasMessageContaining("Setting a table comment with column mapping %s is not supported".formatted(mode));
+            assertQueryFailure(() -> onTrino().executeQuery("COMMENT ON COLUMN delta.default." + tableName + ".a_number IS 'test comment'"))
+                    .hasMessageContaining("Setting a column comment with column mapping %s is not supported".formatted(mode));
             assertQueryFailure(() -> onTrino().executeQuery("ALTER TABLE delta.default." + tableName + " EXECUTE OPTIMIZE"))
-                    .hasMessageContaining("Delta Lake writer version 5 which is not supported");
+                    .hasMessageContaining("Executing 'optimize' procedure with column mapping %s is not supported".formatted(mode));
             assertQueryFailure(() -> onTrino().executeQuery("ALTER TABLE delta.default." + tableName + " ADD COLUMN new_col varchar"))
-                    .hasMessageContaining("Delta Lake writer version 5 which is not supported");
+                    .hasMessageContaining("Adding a column with column mapping %s is not supported".formatted(mode));
             assertQueryFailure(() -> onTrino().executeQuery("ALTER TABLE delta.default." + tableName + " RENAME COLUMN a_number TO renamed_column"))
                     .hasMessageContaining("This connector does not support renaming columns");
             assertQueryFailure(() -> onTrino().executeQuery("ALTER TABLE delta.default." + tableName + " DROP COLUMN a_number"))
