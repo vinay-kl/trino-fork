@@ -19,7 +19,6 @@ import com.google.inject.name.Named;
 import io.airlift.log.Logger;
 import io.trino.tempto.BeforeMethodWithContext;
 import io.trino.tempto.query.QueryResult;
-import io.trino.testing.DataProviders;
 import io.trino.testng.services.Flaky;
 import org.testng.annotations.Test;
 
@@ -78,9 +77,7 @@ public class TestDeltaLakeCloneTableCompatibilityNew
 //        testReadSchemaChangedCloneTable("DEEP", partitioned);
 //    }
 
-    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, DELTA_LAKE_EXCLUDE_104, DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS},
-            dataProviderClass = DataProviders.class,
-            dataProvider = "trueFalse")
+    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, DELTA_LAKE_EXCLUDE_104, DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
     @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
     public void testVacuumSupportForShallowCloneTable()
     {
