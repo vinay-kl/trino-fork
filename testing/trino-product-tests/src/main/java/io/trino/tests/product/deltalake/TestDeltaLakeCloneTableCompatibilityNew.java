@@ -50,7 +50,7 @@ public class TestDeltaLakeCloneTableCompatibilityNew
     private String s3ServerType;
 
     private AmazonS3 s3;
-    private final String TRANSACTION_LOG_DIRECTORY = "_delta_log";
+    private final String transactionLogDirectory = "_delta_log";
 
     @BeforeMethodWithContext
     public void setup()
@@ -105,9 +105,9 @@ public class TestDeltaLakeCloneTableCompatibilityNew
 
     private Set<String> getAllDataFilesFromTableDirectory(String directory)
     {
-        return s3.listObjectsV2(bucketName, directory).getObjectSummaries().stream().
-                filter(s3ObjectSummary -> !s3ObjectSummary.getKey().contains("/" + TRANSACTION_LOG_DIRECTORY)).
-                map(s3ObjectSummary -> format("s3://%s/%s", bucketName, s3ObjectSummary.getKey()))
+        return s3.listObjectsV2(bucketName, directory).getObjectSummaries().stream()
+                .filter(s3ObjectSummary -> !s3ObjectSummary.getKey().contains("/" + transactionLogDirectory))
+                .map(s3ObjectSummary -> format("s3://%s/%s", bucketName, s3ObjectSummary.getKey()))
                 .collect(toImmutableSet());
     }
 
