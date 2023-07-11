@@ -22,7 +22,6 @@ import org.testng.annotations.Test;
 import java.util.List;
 
 import static io.trino.tempto.assertions.QueryAssert.Row.row;
-import static io.trino.tempto.assertions.QueryAssert.assertThat;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.tests.product.TestGroups.DELTA_LAKE_DATABRICKS;
 import static io.trino.tests.product.TestGroups.DELTA_LAKE_EXCLUDE_104;
@@ -35,20 +34,24 @@ import static io.trino.tests.product.deltalake.util.DeltaLakeTestUtils.DATABRICK
 import static io.trino.tests.product.deltalake.util.DeltaLakeTestUtils.dropDeltaTableWithRetry;
 import static io.trino.tests.product.utils.QueryExecutors.onDelta;
 import static io.trino.tests.product.utils.QueryExecutors.onTrino;
+import static org.assertj.core.api.Assertions.assertThat;
 
-public class TestDeltaLakeDatabricksCloneTableCompatibility
+public class TestDeltaLakeCloneTableCompatibility
         extends BaseTestDeltaLakeS3Storage
 {
-    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, DELTA_LAKE_EXCLUDE_104, DELTA_LAKE_OSS,
-            PROFILE_SPECIFIC_TESTS}, dataProviderClass = DataProviders.class, dataProvider = "trueFalse")
+
+    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, DELTA_LAKE_EXCLUDE_104, DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS},
+            dataProviderClass = DataProviders.class,
+            dataProvider = "trueFalse")
     @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
     public void testReadFromSchemaChangedShallowCloneTable(boolean partitioned)
     {
         testReadSchemaChangedCloneTable("SHALLOW", partitioned);
     }
 
-    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, DELTA_LAKE_EXCLUDE_104,
-            PROFILE_SPECIFIC_TESTS}, dataProviderClass = DataProviders.class, dataProvider = "trueFalse")
+    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, DELTA_LAKE_EXCLUDE_104, PROFILE_SPECIFIC_TESTS},
+            dataProviderClass = DataProviders.class,
+            dataProvider = "trueFalse")
     @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
     public void testReadFromSchemaChangedDeepCloneTable(boolean partitioned)
     {
@@ -71,7 +74,7 @@ public class TestDeltaLakeDatabricksCloneTableCompatibility
                     " TBLPROPERTIES (" +
                     " 'delta.columnMapping.mode'='name' )");
 
-            onDelta().executeQuery("INSERT INTO default." + baseTable + " VALUES (1, \"a\")");
+            onDelta().executeQuery("INSERT INTO default." + baseTable + " VALUES (1, 'a')");
 
             Row expectedRow = row(1, "a");
             assertThat(onDelta().executeQuery("SELECT * FROM default." + baseTable))
@@ -81,7 +84,7 @@ public class TestDeltaLakeDatabricksCloneTableCompatibility
 
             onDelta().executeQuery("ALTER TABLE default." + baseTable + " add columns (c_string string, d_int int)");
 
-            onDelta().executeQuery("INSERT INTO default." + baseTable + " VALUES (2, \"b\", \"c\", 3)");
+            onDelta().executeQuery("INSERT INTO default." + baseTable + " VALUES (2, 'b', 'c', 3)");
 
             onDelta().executeQuery("CREATE TABLE default." + clonedTableV1 +
                     " " + cloneType + " CLONE default." + baseTable + " VERSION AS OF 1 " +
@@ -154,7 +157,7 @@ public class TestDeltaLakeDatabricksCloneTableCompatibility
                         .containsOnly(expectedPartitionRows);
             }
 
-            onDelta().executeQuery("INSERT INTO default." + clonedTableV4 + " VALUES (3, \"c\", 3)");
+            onDelta().executeQuery("INSERT INTO default." + clonedTableV4 + " VALUES (3, 'c', 3)");
             onTrino().executeQuery("INSERT INTO delta.default." + clonedTableV4 + " VALUES (4, 'd', 4)");
 
             List<Row> expectedRowsV5 = ImmutableList.of(row(1, "a", null), row(2, "b", 3), row(3, "c", 3), row(4, "d", 4));
