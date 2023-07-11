@@ -14,6 +14,7 @@
 package io.trino.tests.product.deltalake;
 
 import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.google.inject.Inject;
 import com.google.inject.name.Named;
 import io.airlift.log.Logger;
@@ -22,11 +23,7 @@ import io.trino.tempto.query.QueryResult;
 import io.trino.testng.services.Flaky;
 import org.testng.annotations.Test;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
+import java.util.List;
 
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.tests.product.TestGroups.DELTA_LAKE_DATABRICKS;
@@ -82,29 +79,19 @@ public class TestDeltaLakeCloneTableCompatibilityNew
     public void testVacuumSupportForShallowCloneTable()
     {
         String baseTable = "test_dl_base_table_" + randomNameSuffix();
+        String directoryName = "databricks-compatibility-test-" + baseTable;
         try {
             onDelta().executeQuery("CREATE TABLE default." + baseTable +
                     " (a_int INT, b_string STRING) USING delta " +
-                    "LOCATION 's3://" + bucketName + "/databricks-compatibility-test-" + baseTable + "'" +
+                    "LOCATION 's3://" + bucketName + "/" + directoryName + "'" +
                     " TBLPROPERTIES (" +
                     " 'delta.columnMapping.mode'='name' )");
 
             onDelta().executeQuery("INSERT INTO default." + baseTable + " VALUES (1, 'a')");
             QueryResult queryResult = onTrino().executeQuery("SELECT DISTINCT \"$path\" FROM default." + baseTable);
             log.info("rows::" + queryResult.rows());
-            Set<String> paths = new HashSet<>();
-            Optional<ResultSet> jdbcResultSet = queryResult.getJdbcResultSet();
-            if (jdbcResultSet.isPresent()) {
-                ResultSet resultSet = jdbcResultSet.get();
-                while (resultSet.next()) {
-                    String pathString = resultSet.getString(1);
-                    paths.add(pathString);
-                }
-            }
-            log.info("paths::" + paths);
-        }
-        catch (SQLException e) {
-            throw new RuntimeException(e);
+            List<S3ObjectSummary> objectSummaries = s3.listObjectsV2(bucketName, directoryName).getObjectSummaries();
+            log.info("objectSummaries:::" + objectSummaries);
         }
         finally {
             dropDeltaTableWithRetry("default." + baseTable);
