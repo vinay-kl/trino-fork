@@ -24,7 +24,9 @@ import io.trino.testng.services.Flaky;
 import org.testng.annotations.Test;
 
 import java.util.List;
+import java.util.Set;
 
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.tests.product.TestGroups.DELTA_LAKE_DATABRICKS;
 import static io.trino.tests.product.TestGroups.DELTA_LAKE_EXCLUDE_104;
@@ -37,6 +39,7 @@ import static io.trino.tests.product.deltalake.util.DeltaLakeTestUtils.DATABRICK
 import static io.trino.tests.product.deltalake.util.DeltaLakeTestUtils.dropDeltaTableWithRetry;
 import static io.trino.tests.product.utils.QueryExecutors.onDelta;
 import static io.trino.tests.product.utils.QueryExecutors.onTrino;
+import static java.lang.String.format;
 
 public class TestDeltaLakeCloneTableCompatibilityNew
         extends BaseTestDeltaLakeS3Storage
@@ -47,6 +50,7 @@ public class TestDeltaLakeCloneTableCompatibilityNew
     private String s3ServerType;
 
     private AmazonS3 s3;
+    private final String TRANSACTION_LOG_DIRECTORY = "_delta_log";
 
     @BeforeMethodWithContext
     public void setup()
@@ -92,10 +96,19 @@ public class TestDeltaLakeCloneTableCompatibilityNew
             log.info("rows::" + queryResult.rows());
             List<S3ObjectSummary> objectSummaries = s3.listObjectsV2(bucketName, directoryName).getObjectSummaries();
             log.info("objectSummaries:::" + objectSummaries);
+            log.info("getAllDataFilesFromTableDirectory:::" + getAllDataFilesFromTableDirectory(directoryName));
         }
         finally {
             dropDeltaTableWithRetry("default." + baseTable);
         }
+    }
+
+    private Set<String> getAllDataFilesFromTableDirectory(String directory)
+    {
+        return s3.listObjectsV2(bucketName, directory).getObjectSummaries().stream().
+                filter(s3ObjectSummary -> !s3ObjectSummary.getKey().contains("/" + TRANSACTION_LOG_DIRECTORY)).
+                map(s3ObjectSummary -> format("s3://%s/%s", bucketName, s3ObjectSummary.getKey()))
+                .collect(toImmutableSet());
     }
 
 //    private void testReadSchemaChangedCloneTable(String cloneType, boolean partitioned)
