@@ -39,7 +39,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class TestDeltaLakeCloneTableCompatibility
         extends BaseTestDeltaLakeS3Storage
 {
-
     @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, DELTA_LAKE_EXCLUDE_104, DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS},
             dataProviderClass = DataProviders.class,
             dataProvider = "trueFalse")
