@@ -26,6 +26,7 @@ import org.testng.annotations.Test;
 import java.util.List;
 import java.util.Set;
 
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.tests.product.TestGroups.DELTA_LAKE_DATABRICKS;
@@ -94,6 +95,7 @@ public class TestDeltaLakeCloneTableCompatibilityNew
             onDelta().executeQuery("INSERT INTO default." + baseTable + " VALUES (1, 'a')");
             QueryResult queryResult = onTrino().executeQuery("SELECT DISTINCT \"$path\" FROM default." + baseTable);
             log.info("rows::" + queryResult.rows());
+            log.info("getActiveDataFiles:::" + getActiveDataFiles(baseTable));
             List<S3ObjectSummary> objectSummaries = s3.listObjectsV2(bucketName, directoryName).getObjectSummaries();
             log.info("objectSummaries:::" + objectSummaries);
             log.info("getAllDataFilesFromTableDirectory:::" + getAllDataFilesFromTableDirectory(directoryName));
@@ -101,6 +103,16 @@ public class TestDeltaLakeCloneTableCompatibilityNew
         finally {
             dropDeltaTableWithRetry("default." + baseTable);
         }
+    }
+
+    private Set<String> getActiveDataFiles(String tableName)
+    {
+        QueryResult queryResult = onTrino().executeQuery("SELECT DISTINCT \"$path\" FROM default." + tableName);
+        checkState(queryResult.getColumnTypes().size() == 1, "result set must have exactly one column");
+        return queryResult.rows().stream()
+                .map(objects -> objects.get(0))
+                .map(String.class::cast)
+                .collect(toImmutableSet());
     }
 
     private Set<String> getAllDataFilesFromTableDirectory(String directory)
