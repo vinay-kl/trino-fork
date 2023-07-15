@@ -79,48 +79,47 @@ public class TestDeltaLakeCloneTableCompatibilityNew
 
             onDelta().executeQuery("INSERT INTO default." + baseTable + " VALUES (1, 'a')");
             Set<String> baseTableActiveDataFiles = getActiveDataFiles(baseTable);
-            log.info("baseTableActiveDataFiles {}", baseTableActiveDataFiles);
+            log.info("baseTableActiveDataFiles {} ::: " + baseTableActiveDataFiles);
             Set<String> baseTableAllDataFiles = getAllDataFilesFromTableDirectory(directoryName + baseTable);
-            log.info("baseTableAllDataFiles {}", baseTableAllDataFiles);
+            log.info("baseTableAllDataFiles {} ::: " + baseTableAllDataFiles);
             assertThat(baseTableActiveDataFiles).hasSize(1).isEqualTo(baseTableAllDataFiles);
             onDelta().executeQuery("CREATE TABLE default." + clonedTable +
                     " SHALLOW CLONE default." + baseTable +
                     " LOCATION 's3://" + bucketName + "/" + directoryName + clonedTable + "'");
             onDelta().executeQuery("INSERT INTO default." + clonedTable + " VALUES (2, 'b')");
             Set<String> clonedTableV1ActiveDataFiles = getActiveDataFiles(clonedTable);
-            log.info("clonedTableV1ActiveDataFiles {}", clonedTableV1ActiveDataFiles);
+            log.info("clonedTableV1ActiveDataFiles {} ::: " + clonedTableV1ActiveDataFiles);
             // size is 2 because, distinct path returns files which is union of base table (as of cloned version) and newly added file in cloned table
             assertThat(clonedTableV1ActiveDataFiles).hasSize(2);
             Set<String> clonedTableV1AllDataFiles = getAllDataFilesFromTableDirectory(directoryName + clonedTable);
-            log.info("clonedTableV1AllDataFiles {}", clonedTableV1AllDataFiles);
+            log.info("clonedTableV1AllDataFiles {} ::: " + clonedTableV1AllDataFiles);
             // size is 1 because, data file within shallow cloned folder is only 1 post the above insert
             assertThat(clonedTableV1AllDataFiles).hasSize(1);
             onDelta().executeQuery("UPDATE default." + clonedTable + " SET a_int = a_int + 1");
             Set<String> clonedTableV2ActiveDataFiles = getActiveDataFiles(clonedTable);
-            log.info("clonedTableV2ActiveDataFiles {}", clonedTableV2ActiveDataFiles);
+            log.info("clonedTableV2ActiveDataFiles {} ::: " + clonedTableV2ActiveDataFiles);
             // size is 2 because, referenced file from base table and relative file post above insert are both re-written
             assertThat(clonedTableV2ActiveDataFiles).hasSize(2);
             Set<String> clonedTableV2AllDataFiles = getAllDataFilesFromTableDirectory(directoryName + clonedTable);
-            log.info("clonedTableV2AllDataFiles {}", clonedTableV2AllDataFiles);
+            log.info("clonedTableV2AllDataFiles {} ::: " + clonedTableV2AllDataFiles);
             assertThat(clonedTableV2AllDataFiles).hasSize(3);
             onDelta().executeQuery("SET spark.databricks.delta.retentionDurationCheck.enabled = false");
             Set<String> toBeVacuumedDataFilesFromDryRun = getToBeVacuumedDataFilesFromDryRun(clonedTable);
-            log.info("toBeVacuumedDataFilesFromDryRun {}", toBeVacuumedDataFilesFromDryRun);
+            log.info("toBeVacuumedDataFilesFromDryRun {} ::: " + toBeVacuumedDataFilesFromDryRun);
             // only the clonedTableV1AllDataFiles should be deleted, which is size 1 and should not contain any files/paths from base table
             assertThat(toBeVacuumedDataFilesFromDryRun).hasSize(1)
-                    .containsExactlyElementsOf(clonedTableV1ActiveDataFiles)
-                    .containsExactlyElementsOf(clonedTableV1AllDataFiles)
+                    .hasSameElementsAs(clonedTableV1AllDataFiles)
                     .doesNotContainAnyElementsOf(baseTableAllDataFiles);
             onDelta().executeQuery("VACUUM default." + clonedTable + " RETAIN 0 HOURS");
             Set<String> clonedTableV4ActiveDataFiles = getActiveDataFiles(clonedTable);
-            log.info("clonedTableV4ActiveDataFiles {}", clonedTableV4ActiveDataFiles);
+            log.info("clonedTableV4ActiveDataFiles {} ::: " + clonedTableV4ActiveDataFiles);
             // size of active data files should remain same
             assertThat(clonedTableV4ActiveDataFiles).hasSize(2).isEqualTo(clonedTableV2ActiveDataFiles);
             Set<String> clonedTableV4AllDataFiles = getAllDataFilesFromTableDirectory(directoryName + clonedTable);
-            log.info("clonedTableV4AllDataFiles {}", clonedTableV4AllDataFiles);
+            log.info("clonedTableV4AllDataFiles {} ::: " + clonedTableV4AllDataFiles);
             // size of all data files should be 2 post vacuum
             assertThat(clonedTableV4ActiveDataFiles).hasSize(2)
-                    .containsExactlyElementsOf(clonedTableV4AllDataFiles);
+                    .hasSameElementsAs(clonedTableV4AllDataFiles);
 
             ImmutableList<Row> expectedRowsClonedTable = ImmutableList.of(row(2, "a"), row(3, "b"));
             assertThat(onDelta().executeQuery("SELECT * FROM default." + clonedTable))
@@ -135,14 +134,14 @@ public class TestDeltaLakeCloneTableCompatibilityNew
                     .containsOnly(expectedRow);
 
             Set<String> baseTableActiveDataFilesPostVacuumOnShallowClonedTable = getActiveDataFiles(baseTable);
-            log.info("baseTableActiveDataFilesPostVacuumOnShallowClonedTable {}", baseTableActiveDataFilesPostVacuumOnShallowClonedTable);
+            log.info("baseTableActiveDataFilesPostVacuumOnShallowClonedTable {} ::: " + baseTableActiveDataFilesPostVacuumOnShallowClonedTable);
             Set<String> baseTableAllDataFilesPostVacuumOnShallowClonedTable = getAllDataFilesFromTableDirectory(directoryName + baseTable);
-            log.info("baseTableAllDataFilesPostVacuumOnShallowClonedTable {}", baseTableAllDataFilesPostVacuumOnShallowClonedTable);
+            log.info("baseTableAllDataFilesPostVacuumOnShallowClonedTable {} ::: " + baseTableAllDataFilesPostVacuumOnShallowClonedTable);
             // nothing should've changed wrt base table
             assertThat(baseTableActiveDataFilesPostVacuumOnShallowClonedTable)
-                    .containsExactlyElementsOf(baseTableAllDataFilesPostVacuumOnShallowClonedTable)
-                    .containsExactlyElementsOf(baseTableActiveDataFiles)
-                    .containsExactlyElementsOf(baseTableAllDataFiles);
+                    .hasSameElementsAs(baseTableAllDataFilesPostVacuumOnShallowClonedTable)
+                    .hasSameElementsAs(baseTableActiveDataFiles)
+                    .hasSameElementsAs(baseTableAllDataFiles);
         }
         finally {
             dropDeltaTableWithRetry("default." + baseTable);
