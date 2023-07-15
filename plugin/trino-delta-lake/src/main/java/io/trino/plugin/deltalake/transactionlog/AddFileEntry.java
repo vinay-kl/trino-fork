@@ -115,7 +115,7 @@ public class AddFileEntry
     }
 
     /**
-     * paths are relative to the table location or absolute in case of shallow cloned table and are RFC 2396 URIs
+     * @see <a href="https://github.com/delta-io/delta/blob/master/PROTOCOL.md#add-file-and-remove-filel"> Delta Lake protocol</a>
      */
     @JsonProperty
     public String getPath()
