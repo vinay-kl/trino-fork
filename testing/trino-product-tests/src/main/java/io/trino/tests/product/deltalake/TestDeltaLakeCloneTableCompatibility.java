@@ -266,6 +266,9 @@ public class TestDeltaLakeCloneTableCompatibility
                     .containsOnly(expectedRowsV5);
             assertThat(onDelta().executeQuery("SELECT * FROM default." + clonedTableV4))
                     .containsOnly(expectedRowsV5);
+            // _metadata.file_path is spark substitute of Trino's "$path"
+            assertThat(onTrino().executeQuery("SELECT DISTINCT \"$path\" FROM default." + clonedTableV4).rows())
+                    .hasSameElementsAs(onDelta().executeQuery("SELECT distinct _metadata.file_path FROM default." + clonedTableV4).rows());
 
             onDelta().executeQuery("DELETE FROM default." + clonedTableV4 + " WHERE a_int in (1, 2)");
 
@@ -274,6 +277,8 @@ public class TestDeltaLakeCloneTableCompatibility
                     .containsOnly(expectedRowsV6);
             assertThat(onDelta().executeQuery("SELECT * FROM default." + clonedTableV4))
                     .containsOnly(expectedRowsV6);
+            assertThat(onTrino().executeQuery("SELECT DISTINCT \"$path\" FROM default." + clonedTableV4).rows())
+                    .hasSameElementsAs(onDelta().executeQuery("SELECT distinct _metadata.file_path FROM default." + clonedTableV4).rows());
         }
         finally {
             dropDeltaTableWithRetry("default." + baseTable);
