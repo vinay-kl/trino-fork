@@ -100,7 +100,7 @@ public class TestDeltaLakeCloneTableCompatibility
 
             onDelta().executeQuery("SET spark.databricks.delta.retentionDurationCheck.enabled = false");
             Set<String> toBeVacuumedDataFilesFromDryRun = getToBeVacuumedDataFilesFromDryRun(clonedTable);
-            // only the clonedTableV1AllDataFiles should be deleted, which is size 1 and should not contain any files/paths from base table
+            // only the clonedTableV1AllDataFiles should be deleted, which is of size 1 and should not contain any files/paths from base table
             assertThat(toBeVacuumedDataFilesFromDryRun).hasSize(1)
                     .hasSameElementsAs(clonedTableV1AllDataFiles)
                     .doesNotContainAnyElementsOf(baseTableAllDataFiles);
@@ -119,12 +119,16 @@ public class TestDeltaLakeCloneTableCompatibility
                     .containsOnly(expectedRowsClonedTable);
             assertThat(onTrino().executeQuery("SELECT * FROM delta.default." + clonedTable))
                     .containsOnly(expectedRowsClonedTable);
+            assertThat(onTrino().executeQuery("SELECT DISTINCT \"$path\" FROM default." + clonedTable).rows())
+                    .hasSameElementsAs(onDelta().executeQuery("SELECT distinct _metadata.file_path FROM default." + clonedTable).rows());
 
             Row expectedRow = row(1, "a");
             assertThat(onDelta().executeQuery("SELECT * FROM default." + baseTable))
                     .containsOnly(expectedRow);
             assertThat(onTrino().executeQuery("SELECT * FROM delta.default." + baseTable))
                     .containsOnly(expectedRow);
+            assertThat(onTrino().executeQuery("SELECT DISTINCT \"$path\" FROM default." + clonedTable).rows())
+                    .hasSameElementsAs(onDelta().executeQuery("SELECT distinct _metadata.file_path FROM default." + clonedTable).rows());
 
             Set<String> baseTableActiveDataFilesPostVacuumOnShallowClonedTable = getActiveDataFiles(baseTable);
             Set<String> baseTableAllDataFilesPostVacuumOnShallowClonedTable = getAllDataFilesFromTableDirectory(directoryName + baseTable);
