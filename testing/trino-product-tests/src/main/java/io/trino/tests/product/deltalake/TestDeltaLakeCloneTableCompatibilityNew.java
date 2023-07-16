@@ -80,21 +80,25 @@ public class TestDeltaLakeCloneTableCompatibilityNew
                     " TBLPROPERTIES (delta.enableChangeDataFeed = true)" +
                     " LOCATION 's3://" + bucketName + "/" + directoryName + clonedTable + "'");
             onDelta().executeQuery("INSERT INTO default." + clonedTable + " VALUES (2, 'b')");
+
             Set<String> cdfFilesPostOnlyInsert = getFilesFromTableDirectory(directoryName + clonedTable + changeDataPrefix);
             // Databricks version >= 12.2 keep an empty _change_data directory
             assertThat(cdfFilesPostOnlyInsert).hasSize(0);
+
             onDelta().executeQuery("UPDATE default." + clonedTable + " SET a_int = a_int + 1");
             Set<String> cdfFilesPostOnlyInsertAndUpdate = getFilesFromTableDirectory(directoryName + clonedTable + changeDataPrefix);
             assertThat(cdfFilesPostOnlyInsertAndUpdate).hasSize(2);
+
             ImmutableList<Row> expectedRowsClonedTableOnTrino = ImmutableList.of(
                     row(2, "b", "insert", 1L),
                     row(1, "a", "update_preimage", 2L),
                     row(2, "a", "update_postimage", 2L),
                     row(2, "b", "update_preimage", 2L),
                     row(3, "b", "update_postimage", 2L));
-            // table_changes function from trino isn't considering `base table inserts on shallow cloned table`
+            // table_changes function from trino isn't considering `base table inserts on shallow cloned table` as CDF as of v422
             assertThat(onTrino().executeQuery("SELECT a_int, b_string, _change_type, _commit_version FROM TABLE(delta.system.table_changes('default', '" + clonedTable + "', 0))"))
                     .containsOnly(expectedRowsClonedTableOnTrino);
+
             ImmutableList<Row> expectedRowsClonedTableOnSpark = ImmutableList.of(
                     row(1, "a", "insert", 0L),
                     row(2, "b", "insert", 1L),
@@ -105,8 +109,10 @@ public class TestDeltaLakeCloneTableCompatibilityNew
             assertThat(onDelta().executeQuery(
                     "SELECT a_int, b_string, _change_type, _commit_version FROM table_changes('default." + clonedTable + "', 0)"))
                     .containsOnly(expectedRowsClonedTableOnSpark);
-            assertThat(onDelta().executeQuery("SELECT * FROM default." + clonedTable).rows())
-                    .containsOnly(onTrino().executeQuery("SELECT * FROM delta.default." + clonedTable).rows());
+
+            ImmutableList<Row> expectedRows = ImmutableList.of(row(2, "a"), row(3, "b"));
+            assertThat(onDelta().executeQuery("SELECT * FROM default." + clonedTable)).containsOnly(expectedRows);
+            assertThat(onTrino().executeQuery("SELECT * FROM delta.default." + clonedTable)).containsOnly(expectedRows);
         }
         finally {
             dropDeltaTableWithRetry("default." + baseTable);
