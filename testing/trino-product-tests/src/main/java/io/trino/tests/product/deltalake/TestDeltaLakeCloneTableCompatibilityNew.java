@@ -105,6 +105,8 @@ public class TestDeltaLakeCloneTableCompatibilityNew
             assertThat(onDelta().executeQuery(
                     "SELECT a_int, b_string, _change_type, _commit_version FROM table_changes('default." + clonedTable + "', 0)"))
                     .containsOnly(expectedRowsClonedTableOnSpark);
+            assertThat(onDelta().executeQuery("SELECT * FROM default." + clonedTable).rows())
+                    .containsOnly(onTrino().executeQuery("SELECT * FROM delta.default." + clonedTable).rows());
         }
         finally {
             dropDeltaTableWithRetry("default." + baseTable);
