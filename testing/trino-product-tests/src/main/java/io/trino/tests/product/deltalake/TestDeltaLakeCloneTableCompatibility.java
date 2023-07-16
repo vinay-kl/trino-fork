@@ -33,6 +33,7 @@ import static io.trino.tempto.assertions.QueryAssert.Row.row;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.tests.product.TestGroups.DELTA_LAKE_DATABRICKS;
 import static io.trino.tests.product.TestGroups.DELTA_LAKE_EXCLUDE_104;
+import static io.trino.tests.product.TestGroups.DELTA_LAKE_EXCLUDE_113;
 import static io.trino.tests.product.TestGroups.DELTA_LAKE_EXCLUDE_73;
 import static io.trino.tests.product.TestGroups.DELTA_LAKE_EXCLUDE_91;
 import static io.trino.tests.product.TestGroups.DELTA_LAKE_OSS;
@@ -61,6 +62,64 @@ public class TestDeltaLakeCloneTableCompatibility
         s3 = new S3ClientFactory().createS3Client(s3ServerType);
     }
 
+    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, DELTA_LAKE_EXCLUDE_104, DELTA_LAKE_EXCLUDE_113, DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
+    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    public void testTableChangesOnShallowCloneTable()
+    {
+        String baseTable = "test_dl_base_table_" + randomNameSuffix();
+        String clonedTable = "test_dl_clone_tableV1_" + randomNameSuffix();
+        String directoryName = "databricks-tablechanges-compatibility-test-";
+        String changeDataPrefix = "/_change_data";
+        try {
+            onDelta().executeQuery("CREATE TABLE default." + baseTable +
+                    " (a_int INT, b_string STRING) USING delta " +
+                    "LOCATION 's3://" + bucketName + "/" + directoryName + baseTable + "'");
+            onDelta().executeQuery("INSERT INTO default." + baseTable + " VALUES (1, 'a')");
+            onDelta().executeQuery("CREATE TABLE default." + clonedTable +
+                    " SHALLOW CLONE default." + baseTable +
+                    " TBLPROPERTIES (delta.enableChangeDataFeed = true)" +
+                    " LOCATION 's3://" + bucketName + "/" + directoryName + clonedTable + "'");
+            onDelta().executeQuery("INSERT INTO default." + clonedTable + " VALUES (2, 'b')");
+
+            Set<String> cdfFilesPostOnlyInsert = getFilesFromTableDirectory(directoryName + clonedTable + changeDataPrefix);
+            // Databricks version >= 12.2 keep an empty _change_data directory
+            assertThat(cdfFilesPostOnlyInsert).hasSize(0);
+
+            onDelta().executeQuery("UPDATE default." + clonedTable + " SET a_int = a_int + 1");
+            Set<String> cdfFilesPostOnlyInsertAndUpdate = getFilesFromTableDirectory(directoryName + clonedTable + changeDataPrefix);
+            assertThat(cdfFilesPostOnlyInsertAndUpdate).hasSize(2);
+
+            ImmutableList<Row> expectedRowsClonedTableOnTrino = ImmutableList.of(
+                    row(2, "b", "insert", 1L),
+                    row(1, "a", "update_preimage", 2L),
+                    row(2, "a", "update_postimage", 2L),
+                    row(2, "b", "update_preimage", 2L),
+                    row(3, "b", "update_postimage", 2L));
+            // table_changes function from trino isn't considering `base table inserts on shallow cloned table` as CDF as of v422
+            assertThat(onTrino().executeQuery("SELECT a_int, b_string, _change_type, _commit_version FROM TABLE(delta.system.table_changes('default', '" + clonedTable + "', 0))"))
+                    .containsOnly(expectedRowsClonedTableOnTrino);
+
+            ImmutableList<Row> expectedRowsClonedTableOnSpark = ImmutableList.of(
+                    row(1, "a", "insert", 0L),
+                    row(2, "b", "insert", 1L),
+                    row(1, "a", "update_preimage", 2L),
+                    row(2, "a", "update_postimage", 2L),
+                    row(2, "b", "update_preimage", 2L),
+                    row(3, "b", "update_postimage", 2L));
+            assertThat(onDelta().executeQuery(
+                    "SELECT a_int, b_string, _change_type, _commit_version FROM table_changes('default." + clonedTable + "', 0)"))
+                    .containsOnly(expectedRowsClonedTableOnSpark);
+
+            ImmutableList<Row> expectedRows = ImmutableList.of(row(2, "a"), row(3, "b"));
+            assertThat(onDelta().executeQuery("SELECT * FROM default." + clonedTable)).containsOnly(expectedRows);
+            assertThat(onTrino().executeQuery("SELECT * FROM delta.default." + clonedTable)).containsOnly(expectedRows);
+        }
+        finally {
+            dropDeltaTableWithRetry("default." + baseTable);
+            dropDeltaTableWithRetry("default." + clonedTable);
+        }
+    }
+
     @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, DELTA_LAKE_EXCLUDE_104, DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
     @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
     public void testVacuumOnShallowCloneTable()
@@ -77,7 +136,7 @@ public class TestDeltaLakeCloneTableCompatibility
 
             onDelta().executeQuery("INSERT INTO default." + baseTable + " VALUES (1, 'a')");
             Set<String> baseTableActiveDataFiles = getActiveDataFiles(baseTable);
-            Set<String> baseTableAllDataFiles = getAllDataFilesFromTableDirectory(directoryName + baseTable);
+            Set<String> baseTableAllDataFiles = getFilesFromTableDirectory(directoryName + baseTable);
             assertThat(baseTableActiveDataFiles).hasSize(1).isEqualTo(baseTableAllDataFiles);
 
             onDelta().executeQuery("CREATE TABLE default." + clonedTable +
@@ -87,7 +146,7 @@ public class TestDeltaLakeCloneTableCompatibility
             Set<String> clonedTableV1ActiveDataFiles = getActiveDataFiles(clonedTable);
             // size is 2 because, distinct path returns files which is union of base table (as of cloned version) and newly added file in cloned table
             assertThat(clonedTableV1ActiveDataFiles).hasSize(2);
-            Set<String> clonedTableV1AllDataFiles = getAllDataFilesFromTableDirectory(directoryName + clonedTable);
+            Set<String> clonedTableV1AllDataFiles = getFilesFromTableDirectory(directoryName + clonedTable);
             // size is 1 because, data file within shallow cloned folder is only 1 post the above insert
             assertThat(clonedTableV1AllDataFiles).hasSize(1);
 
@@ -95,7 +154,7 @@ public class TestDeltaLakeCloneTableCompatibility
             Set<String> clonedTableV2ActiveDataFiles = getActiveDataFiles(clonedTable);
             // size is 2 because, referenced file from base table and relative file post above insert are both re-written
             assertThat(clonedTableV2ActiveDataFiles).hasSize(2);
-            Set<String> clonedTableV2AllDataFiles = getAllDataFilesFromTableDirectory(directoryName + clonedTable);
+            Set<String> clonedTableV2AllDataFiles = getFilesFromTableDirectory(directoryName + clonedTable);
             assertThat(clonedTableV2AllDataFiles).hasSize(3);
 
             onDelta().executeQuery("SET spark.databricks.delta.retentionDurationCheck.enabled = false");
@@ -109,7 +168,7 @@ public class TestDeltaLakeCloneTableCompatibility
             Set<String> clonedTableV4ActiveDataFiles = getActiveDataFiles(clonedTable);
             // size of active data files should remain same
             assertThat(clonedTableV4ActiveDataFiles).hasSize(2).isEqualTo(clonedTableV2ActiveDataFiles);
-            Set<String> clonedTableV4AllDataFiles = getAllDataFilesFromTableDirectory(directoryName + clonedTable);
+            Set<String> clonedTableV4AllDataFiles = getFilesFromTableDirectory(directoryName + clonedTable);
             // size of all data files should be 2 post vacuum
             assertThat(clonedTableV4ActiveDataFiles).hasSize(2)
                     .hasSameElementsAs(clonedTableV4AllDataFiles);
@@ -131,7 +190,7 @@ public class TestDeltaLakeCloneTableCompatibility
                     .hasSameElementsAs(onDelta().executeQuery("SELECT distinct _metadata.file_path FROM default." + clonedTable).rows());
 
             Set<String> baseTableActiveDataFilesPostVacuumOnShallowClonedTable = getActiveDataFiles(baseTable);
-            Set<String> baseTableAllDataFilesPostVacuumOnShallowClonedTable = getAllDataFilesFromTableDirectory(directoryName + baseTable);
+            Set<String> baseTableAllDataFilesPostVacuumOnShallowClonedTable = getFilesFromTableDirectory(directoryName + baseTable);
             // nothing should've changed wrt base table
             assertThat(baseTableActiveDataFilesPostVacuumOnShallowClonedTable)
                     .hasSameElementsAs(baseTableAllDataFilesPostVacuumOnShallowClonedTable)
@@ -312,7 +371,7 @@ public class TestDeltaLakeCloneTableCompatibility
         return getSingleColumnRows(onDelta().executeQuery("VACUUM default." + tableName + " RETAIN 0 HOURS DRY RUN"));
     }
 
-    private Set<String> getAllDataFilesFromTableDirectory(String directory)
+    private Set<String> getFilesFromTableDirectory(String directory)
     {
         return s3.listObjectsV2(bucketName, directory).getObjectSummaries().stream()
                 .filter(s3ObjectSummary -> !s3ObjectSummary.getKey().contains("/_delta_log"))
