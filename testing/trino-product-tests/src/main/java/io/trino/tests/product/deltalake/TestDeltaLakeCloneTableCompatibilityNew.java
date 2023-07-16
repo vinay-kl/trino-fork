@@ -93,7 +93,7 @@ public class TestDeltaLakeCloneTableCompatibilityNew
                     row(2, "b", "update_preimage", 2L),
                     row(3, "b", "update_postimage", 2L));
             // table_changes function from trino isn't considering `base table inserts on shallow cloned table`
-            assertThat(onTrino().executeQuery("SELECT a, b, _change_type, _commit_version FROM TABLE(delta.table_changes('default', '" + clonedTable + "'"))
+            assertThat(onTrino().executeQuery("SELECT a, b, _change_type, _commit_version FROM TABLE(delta.system.table_changes('default', '" + clonedTable + "'))"))
                     .containsOnly(expectedRowsClonedTableOnTrino);
             ImmutableList<Row> expectedRowsClonedTableOnSpark = ImmutableList.of(
                     row(1, "a", "insert", 0L),
