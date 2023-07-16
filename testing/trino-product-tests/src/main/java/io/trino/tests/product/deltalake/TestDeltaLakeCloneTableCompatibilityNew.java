@@ -69,7 +69,7 @@ public class TestDeltaLakeCloneTableCompatibilityNew
         String baseTable = "test_dl_base_table_" + randomNameSuffix();
         String clonedTable = "test_dl_clone_tableV1_" + randomNameSuffix();
         String directoryName = "databricks-tablechanges-compatibility-test-";
-        String changeDataPrefix = directoryName + "/_change_data";
+        String changeDataPrefix = "/_change_data";
         try {
             onDelta().executeQuery("CREATE TABLE default." + baseTable +
                     " (a_int INT, b_string STRING) USING delta " +
@@ -80,11 +80,11 @@ public class TestDeltaLakeCloneTableCompatibilityNew
                     " TBLPROPERTIES (delta.enableChangeDataFeed = true)" +
                     " LOCATION 's3://" + bucketName + "/" + directoryName + clonedTable + "'");
             onDelta().executeQuery("INSERT INTO default." + clonedTable + " VALUES (2, 'b')");
-            Set<String> cdfFilesPostOnlyInsert = getFilesFromTableDirectory(changeDataPrefix);
+            Set<String> cdfFilesPostOnlyInsert = getFilesFromTableDirectory(directoryName + clonedTable + changeDataPrefix);
             // Databricks version >= 12.2 keep an empty _change_data directory
             assertThat(cdfFilesPostOnlyInsert).hasSize(0);
             onDelta().executeQuery("UPDATE default." + clonedTable + " SET a_int = a_int + 1");
-            Set<String> cdfFilesPostOnlyInsertAndUpdate = getFilesFromTableDirectory(changeDataPrefix);
+            Set<String> cdfFilesPostOnlyInsertAndUpdate = getFilesFromTableDirectory(directoryName + clonedTable + changeDataPrefix);
             assertThat(cdfFilesPostOnlyInsertAndUpdate).hasSize(2);
             ImmutableList<Row> expectedRowsClonedTableOnTrino = ImmutableList.of(
                     row(2, "b", "insert", 1L),
