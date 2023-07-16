@@ -77,8 +77,8 @@ public class TestDeltaLakeCloneTableCompatibilityNew
             onDelta().executeQuery("INSERT INTO default." + baseTable + " VALUES (1, 'a')");
             onDelta().executeQuery("CREATE TABLE default." + clonedTable +
                     " SHALLOW CLONE default." + baseTable +
-                    " LOCATION 's3://" + bucketName + "/" + directoryName + clonedTable + "'" +
-                    " TBLPROPERTIES (delta.enableChangeDataFeed = true)");
+                    " TBLPROPERTIES (delta.enableChangeDataFeed = true)" +
+                    " LOCATION 's3://" + bucketName + "/" + directoryName + clonedTable + "'");
             onDelta().executeQuery("INSERT INTO default." + clonedTable + " VALUES (2, 'b')");
             Set<String> cdfFilesPostOnlyInsert = getFilesFromTableDirectory(changeDataPrefix);
             // Databricks version >= 12.2 keep an empty _change_data directory
