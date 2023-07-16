@@ -96,7 +96,7 @@ public class TestDeltaLakeCloneTableCompatibilityNew
             assertThat(onTrino().executeQuery("SELECT a, b, _change_type, _commit_version FROM TABLE(delta.table_changes('default', '" + clonedTable + "'"))
                     .containsOnly(expectedRowsClonedTableOnTrino);
             ImmutableList<Row> expectedRowsClonedTableOnSpark = ImmutableList.of(
-                    row(1, "a", "insert", 1L),
+                    row(1, "a", "insert", 0L),
                     row(2, "b", "insert", 1L),
                     row(1, "a", "update_preimage", 2L),
                     row(2, "a", "update_postimage", 2L),
