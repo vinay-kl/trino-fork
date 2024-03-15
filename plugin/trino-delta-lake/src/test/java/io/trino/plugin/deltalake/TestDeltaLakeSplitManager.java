@@ -124,9 +124,19 @@ public class TestDeltaLakeSplitManager
         assertThat(splits).isEqualTo(expected);
     }
 
-    @Test(dataProvider = "absolutePaths")
-    public void testAbsolutePathSplits(String absoluteRawEncodedFilePath, String absoluteDecodedParsedFilePath)
-            throws Exception
+    @Test
+    public void testAbsolutePathSplits() throws Exception
+    {
+        testAbsolutePathSplits("file://path/to/file", "file://path/to/file");
+        testAbsolutePathSplits("abfs://ct@st.dfs.core.windows.net/path/to/file", "abfs://ct@st.dfs.core.windows.net/path/to/file");
+        testAbsolutePathSplits("hdfs://path/to/file", "hdfs://path/to/file");
+        testAbsolutePathSplits("s3://my-s3-bucket/path/to//file", "s3://my-s3-bucket/path/to//file");
+        testAbsolutePathSplits("s3://my-s3-bucket/path/to//file/", "s3://my-s3-bucket/path/to//file/");
+        testAbsolutePathSplits("gs://my-gcp-bucket/path/to/file", "gs://my-gcp-bucket/path/to/file");
+        testAbsolutePathSplits("abfs://ct@st.dfs.core.windows.net/+ab+/a%25/a%2525/path/to/file", "abfs://ct@st.dfs.core.windows.net/+ab+/a%/a%25/path/to/file");
+    }
+
+    private void testAbsolutePathSplits(String absoluteRawEncodedFilePath, String absoluteDecodedParsedFilePath) throws Exception
     {
         long fileSize = 20_000;
         List<AddFileEntry> addFileEntries = ImmutableList.of(addFileEntryOfSize(absoluteRawEncodedFilePath, fileSize));
@@ -137,15 +147,14 @@ public class TestDeltaLakeSplitManager
 
         DeltaLakeSplitManager splitManager = setupSplitManager(addFileEntries, deltaLakeConfig);
         List<DeltaLakeSplit> splits = getSplits(splitManager, deltaLakeConfig);
+            List<DeltaLakeSplit> expected = ImmutableList.of(
+                    makeSplit(absoluteDecodedParsedFilePath, 0, 5_000, fileSize, minimumAssignedSplitWeight),
+                    makeSplit(absoluteDecodedParsedFilePath, 5_000, 5_000, fileSize, minimumAssignedSplitWeight),
+                    makeSplit(absoluteDecodedParsedFilePath, 10_000, 5_000, fileSize, minimumAssignedSplitWeight),
+                    makeSplit(absoluteDecodedParsedFilePath, 15_000, 5_000, fileSize, minimumAssignedSplitWeight));
 
-        List<DeltaLakeSplit> expected = ImmutableList.of(
-                makeSplit(absoluteDecodedParsedFilePath, 0, 5_000, fileSize, minimumAssignedSplitWeight),
-                makeSplit(absoluteDecodedParsedFilePath, 5_000, 5_000, fileSize, minimumAssignedSplitWeight),
-                makeSplit(absoluteDecodedParsedFilePath, 10_000, 5_000, fileSize, minimumAssignedSplitWeight),
-                makeSplit(absoluteDecodedParsedFilePath, 15_000, 5_000, fileSize, minimumAssignedSplitWeight));
-
-        assertEquals(splits, expected);
-        assertEquals(absoluteDecodedParsedFilePath, splits.get(0).getPath());
+            assertThat(splits).isEqualTo(expected);
+            assertThat(absoluteDecodedParsedFilePath).isEqualTo(splits.get(0).getPath());
     }
 
     @Test
@@ -270,13 +279,13 @@ public class TestDeltaLakeSplitManager
 
     private AddFileEntry addFileEntryOfSize(String path, long fileSize)
     {
-        return new AddFileEntry(path, ImmutableMap.of(), fileSize, 0, false, Optional.empty(), Optional.empty(), ImmutableMap.of());
+        return new AddFileEntry(path, ImmutableMap.of(), fileSize, 0, false, Optional.empty(), Optional.empty(), ImmutableMap.of(), Optional.empty());
     }
 
     private DeltaLakeSplit makeSplit(String path, long start, long splitSize, long fileSize, double minimumAssignedSplitWeight)
     {
-        SplitWeight splitWeight = SplitWeight.fromProportion(Math.min(Math.max((double) fileSize / splitSize, minimumAssignedSplitWeight), 1.0));
-        return new DeltaLakeSplit(path, start, splitSize, fileSize, Optional.empty(), 0, splitWeight, TupleDomain.all(), ImmutableMap.of());
+        SplitWeight splitWeight = SplitWeight.fromProportion(clamp((double) fileSize / splitSize, minimumAssignedSplitWeight, 1.0));
+        return new DeltaLakeSplit(path, start, splitSize, fileSize, Optional.empty(), 0, Optional.empty(), splitWeight, TupleDomain.all(), ImmutableMap.of());
     }
 
     private List<DeltaLakeSplit> getSplits(DeltaLakeSplitManager splitManager, DeltaLakeConfig deltaLakeConfig)
@@ -305,18 +314,5 @@ public class TestDeltaLakeSplitManager
         return TestingConnectorSession.builder()
                 .setPropertyMetadata(sessionProperties.getSessionProperties())
                 .build();
-    }
-
-    @DataProvider
-    public static Object[][] absolutePaths()
-    {
-        return new Object[][] {
-                {"file://path/to/file", "file://path/to/file"},
-                {"abfs://ct@st.dfs.core.windows.net/path/to/file", "abfs://ct@st.dfs.core.windows.net/path/to/file"},
-                {"hdfs://path/to/file", "hdfs://path/to/file"},
-                {"s3://my-s3-bucket/path/to//file", "s3://my-s3-bucket/path/to//file"},
-                {"s3://my-s3-bucket/path/to//file/", "s3://my-s3-bucket/path/to//file/"},
-                {"gs://my-gcp-bucket/path/to/file", "gs://my-gcp-bucket/path/to/file"},
-                {"abfs://ct@st.dfs.core.windows.net/+ab+/a%25/a%2525/path/to/file", "abfs://ct@st.dfs.core.windows.net/+ab+/a%/a%25/path/to/file"}};
     }
 }
