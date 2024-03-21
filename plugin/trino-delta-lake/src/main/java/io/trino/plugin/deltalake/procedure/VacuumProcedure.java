@@ -54,6 +54,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -208,10 +209,24 @@ public class VacuumProcedure
                     handle.getProtocolEntry(),
                     TupleDomain.all(),
                     alwaysFalse())) {
+                List<String> collect = activeAddEntries.map(AddFileEntry::getPath).collect(Collectors.toList());
+                System.out.println("collect:::"+collect);
+                List<String> collect1 = transactionLogAccess.getJsonEntries(
+                                fileSystem,
+                                transactionLogDir,
+                                // discard oldest "recent" snapshot, since we take RemoveFileEntry only, to identify files that are no longer
+                                // active files, but still needed to read a "recent" snapshot
+                                recentVersions.stream().sorted(naturalOrder())
+                                        .skip(1)
+                                        .collect(toImmutableList()))
+                        .map(DeltaLakeTransactionLogEntry::getRemove)
+                        .filter(Objects::nonNull)
+                        .map(RemoveFileEntry::getPath).collect(Collectors.toList());
+                System.out.println("collect1:::"+collect1);
                 retainedPaths = Stream.concat(
-                                activeAddEntries
+                                collect.stream()
                                         // paths can be absolute as well in case of shallow-cloned tables, but they shouldn't and aren't being deleted as part of vacuum
-                                        .map(AddFileEntry::getPath),
+                                        ,
                                 transactionLogAccess.getJsonEntries(
                                                 fileSystem,
                                                 transactionLogDir,

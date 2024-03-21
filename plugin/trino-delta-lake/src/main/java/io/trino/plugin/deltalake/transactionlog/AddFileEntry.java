@@ -115,7 +115,7 @@ public class AddFileEntry
     }
 
     /**
-     * @see <a href="https://github.com/delta-io/delta/blob/master/PROTOCOL.md#add-file-and-remove-filel"> Delta Lake protocol</a>
+     * @see <a href="https://github.com/delta-io/delta/blob/master/PROTOCOL.md#add-file-and-remove-filel">Delta Lake protocol</a>
      */
     @JsonProperty
     public String getPath()
