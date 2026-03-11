@@ -34,3 +34,8 @@ product-test-reports
 **/dependency-reduced-pom.xml
 core/trino-web-ui/src/main/resources/webapp/dist/
 .node
+.tmp/
+CLAUDE.md
+testing/trino-server-dev/etc/catalog/delta_unity.properties
+testing/trino-server-dev/etc/catalog/disabled/
+testing/trino-server-dev/etc/exchange-manager.properties.disabled

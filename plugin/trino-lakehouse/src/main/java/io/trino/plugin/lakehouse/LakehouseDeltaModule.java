@@ -32,13 +32,12 @@ import io.trino.plugin.deltalake.DeltaLakeSynchronizerModule;
 import io.trino.plugin.deltalake.DeltaLakeTableProperties;
 import io.trino.plugin.deltalake.DeltaLakeTransactionManager;
 import io.trino.plugin.deltalake.DeltaLakeWriterStats;
+import io.trino.plugin.deltalake.metastore.DeltaLakeMetastoreFactory;
 import io.trino.plugin.deltalake.metastore.DeltaLakeMetastoreModule;
 import io.trino.plugin.deltalake.metastore.DeltaLakeTableMetadataScheduler;
+import io.trino.plugin.deltalake.metastore.HiveBackedDeltaLakeMetastoreFactory;
 import io.trino.plugin.deltalake.metastore.NoOpVendedCredentialsProvider;
 import io.trino.plugin.deltalake.metastore.VendedCredentialsProvider;
-import io.trino.plugin.deltalake.metastore.file.DeltaLakeFileMetastoreModule;
-import io.trino.plugin.deltalake.metastore.glue.DeltaLakeGlueMetastoreModule;
-import io.trino.plugin.deltalake.metastore.thrift.DeltaLakeThriftMetastoreModule;
 import io.trino.plugin.deltalake.statistics.CachingExtendedStatisticsAccess;
 import io.trino.plugin.deltalake.statistics.CachingExtendedStatisticsAccess.ForCachingExtendedStatisticsAccess;
 import io.trino.plugin.deltalake.statistics.ExtendedStatistics;
@@ -54,8 +53,6 @@ import io.trino.plugin.deltalake.transactionlog.writer.FileSystemTransactionLogW
 import io.trino.plugin.deltalake.transactionlog.writer.NoIsolationSynchronizer;
 import io.trino.plugin.deltalake.transactionlog.writer.TransactionLogSynchronizerManager;
 import io.trino.plugin.deltalake.transactionlog.writer.TransactionLogWriterFactory;
-import io.trino.plugin.hive.metastore.MetastoreTypeConfig;
-
 import static com.google.inject.multibindings.OptionalBinder.newOptionalBinder;
 import static io.airlift.configuration.ConfigBinder.configBinder;
 import static io.airlift.json.JsonCodecBinder.jsonCodecBinder;
@@ -81,6 +78,8 @@ public class LakehouseDeltaModule
 
         binder.bind(DeltaLakeTransactionManager.class).in(Scopes.SINGLETON);
         binder.bind(DeltaLakeMetadataFactory.class).in(Scopes.SINGLETON);
+        newOptionalBinder(binder, DeltaLakeMetastoreFactory.class)
+                .setDefault().to(HiveBackedDeltaLakeMetastoreFactory.class).in(Scopes.SINGLETON);
         binder.bind(DeltaLakeWriterStats.class).in(Scopes.SINGLETON);
         binder.bind(CheckpointSchemaManager.class).in(Scopes.SINGLETON);
         binder.bind(CheckpointWriterManager.class).in(Scopes.SINGLETON);
@@ -107,12 +106,6 @@ public class LakehouseDeltaModule
         jsonCodecBinder(binder).bindJsonCodec(DeltaLakeMergeResult.class);
         jsonCodecBinder(binder).bindJsonCodec(ExtendedStatistics.class);
         jsonCodecBinder(binder).bindJsonCodec(LastCheckpoint.class);
-
-        install(switch (buildConfigObject(MetastoreTypeConfig.class).getMetastoreType()) {
-            case THRIFT -> new DeltaLakeThriftMetastoreModule();
-            case FILE -> new DeltaLakeFileMetastoreModule();
-            case GLUE -> new DeltaLakeGlueMetastoreModule();
-        });
 
         binder.install(new DeltaLakeExecutorModule());
     }

@@ -1,0 +1,177 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.trino.unity;
+
+import io.airlift.configuration.Config;
+import io.airlift.configuration.ConfigDescription;
+import io.airlift.configuration.ConfigSecuritySensitive;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.NotNull;
+
+import java.net.URI;
+
+public class UnityCatalogConfig
+{
+    public enum AuthType
+    {
+        STATIC,
+        EXTRA_CREDENTIALS,
+        OAUTH2,
+    }
+
+    private URI serverUri;
+    private String catalogName;
+    private AuthType authType = AuthType.STATIC;
+    private String staticToken;
+    private String extraCredentialName = "unity-catalog.token";
+    private boolean fallbackToStaticToken;
+    private boolean credentialVendingEnabled;
+    private boolean allowHttpEndpoint;
+
+    @NotNull
+    public URI getServerUri()
+    {
+        return serverUri;
+    }
+
+    @Config("unity-catalog.server-uri")
+    @ConfigDescription("Base URI for the Unity Catalog REST API")
+    public UnityCatalogConfig setServerUri(URI serverUri)
+    {
+        this.serverUri = serverUri;
+        return this;
+    }
+
+    @NotNull
+    public String getCatalogName()
+    {
+        return catalogName;
+    }
+
+    @Config("unity-catalog.catalog-name")
+    @ConfigDescription("Unity Catalog catalog name to use")
+    public UnityCatalogConfig setCatalogName(String catalogName)
+    {
+        this.catalogName = catalogName;
+        return this;
+    }
+
+    @NotNull
+    public AuthType getAuthType()
+    {
+        return authType;
+    }
+
+    @Config("unity-catalog.auth-type")
+    @ConfigDescription("Authentication type: STATIC, EXTRA_CREDENTIALS, or OAUTH2")
+    public UnityCatalogConfig setAuthType(AuthType authType)
+    {
+        this.authType = authType;
+        return this;
+    }
+
+    public String getStaticToken()
+    {
+        return staticToken;
+    }
+
+    @Config("unity-catalog.static-token")
+    @ConfigDescription("Static Bearer token for Unity Catalog authentication")
+    @ConfigSecuritySensitive
+    public UnityCatalogConfig setStaticToken(String staticToken)
+    {
+        this.staticToken = staticToken;
+        return this;
+    }
+
+    @NotNull
+    public String getExtraCredentialName()
+    {
+        return extraCredentialName;
+    }
+
+    @Config("unity-catalog.extra-credential-name")
+    @ConfigDescription("Name of the extra credential key containing the per-user UC token")
+    public UnityCatalogConfig setExtraCredentialName(String extraCredentialName)
+    {
+        this.extraCredentialName = extraCredentialName;
+        return this;
+    }
+
+    public boolean isFallbackToStaticToken()
+    {
+        return fallbackToStaticToken;
+    }
+
+    @Config("unity-catalog.fallback-to-static-token")
+    @ConfigDescription("Whether to fall back to the static token when per-user credential is missing")
+    public UnityCatalogConfig setFallbackToStaticToken(boolean fallbackToStaticToken)
+    {
+        this.fallbackToStaticToken = fallbackToStaticToken;
+        return this;
+    }
+
+    public boolean isCredentialVendingEnabled()
+    {
+        return credentialVendingEnabled;
+    }
+
+    @Config("unity-catalog.credential-vending-enabled")
+    @ConfigDescription("Whether to use Unity Catalog credential vending for storage access")
+    public UnityCatalogConfig setCredentialVendingEnabled(boolean credentialVendingEnabled)
+    {
+        this.credentialVendingEnabled = credentialVendingEnabled;
+        return this;
+    }
+
+    public boolean isAllowHttpEndpoint()
+    {
+        return allowHttpEndpoint;
+    }
+
+    @Config("unity-catalog.allow-http-endpoint")
+    @ConfigDescription("Allow non-HTTPS endpoint URI (unsafe, for testing only)")
+    public UnityCatalogConfig setAllowHttpEndpoint(boolean allowHttpEndpoint)
+    {
+        this.allowHttpEndpoint = allowHttpEndpoint;
+        return this;
+    }
+
+    @AssertTrue(message = "Unity Catalog endpoint must use HTTPS unless unity-catalog.allow-http-endpoint is enabled")
+    public boolean isEndpointSecure()
+    {
+        if (serverUri == null || allowHttpEndpoint) {
+            return true;
+        }
+        return "https".equalsIgnoreCase(serverUri.getScheme());
+    }
+
+    @AssertTrue(message = "Static token is required when auth-type is STATIC")
+    public boolean isStaticTokenPresentForStaticAuth()
+    {
+        if (authType != AuthType.STATIC) {
+            return true;
+        }
+        return staticToken != null;
+    }
+
+    @AssertTrue(message = "Fallback to static token requires a static token to be configured")
+    public boolean isFallbackRequiresStaticToken()
+    {
+        if (!fallbackToStaticToken) {
+            return true;
+        }
+        return staticToken != null;
+    }
+}

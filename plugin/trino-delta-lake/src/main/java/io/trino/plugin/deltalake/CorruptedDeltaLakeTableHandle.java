@@ -24,6 +24,7 @@ import static java.util.Objects.requireNonNull;
 public record CorruptedDeltaLakeTableHandle(
         SchemaTableName schemaTableName,
         boolean catalogOwned,
+        Optional<String> tableId,
         boolean managed,
         String location,
         TrinoException originalException)
@@ -32,6 +33,7 @@ public record CorruptedDeltaLakeTableHandle(
     public CorruptedDeltaLakeTableHandle
     {
         requireNonNull(schemaTableName, "schemaTableName is null");
+        requireNonNull(tableId, "tableId is null");
         requireNonNull(location, "location is null");
         requireNonNull(originalException, "originalException is null");
     }
@@ -45,6 +47,6 @@ public record CorruptedDeltaLakeTableHandle(
     @Override
     public VendedCredentialsHandle toCredentialsHandle()
     {
-        return new VendedCredentialsHandle(catalogOwned, managed, location, Optional.empty());
+        return new VendedCredentialsHandle(catalogOwned, managed, location, tableId, Optional.empty());
     }
 }

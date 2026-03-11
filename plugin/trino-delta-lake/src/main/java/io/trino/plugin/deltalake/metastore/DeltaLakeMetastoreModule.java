@@ -18,8 +18,8 @@ import io.airlift.configuration.AbstractConfigurationAwareModule;
 import io.trino.plugin.deltalake.metastore.file.DeltaLakeFileMetastoreModule;
 import io.trino.plugin.deltalake.metastore.glue.DeltaLakeGlueMetastoreModule;
 import io.trino.plugin.deltalake.metastore.thrift.DeltaLakeThriftMetastoreModule;
+import io.trino.plugin.deltalake.metastore.unity.DeltaLakeUnityMetastoreModule;
 import io.trino.plugin.hive.metastore.CachingHiveMetastoreModule;
-import io.trino.plugin.hive.metastore.MetastoreTypeConfig;
 
 public class DeltaLakeMetastoreModule
         extends AbstractConfigurationAwareModule
@@ -27,12 +27,21 @@ public class DeltaLakeMetastoreModule
     @Override
     protected void setup(Binder binder)
     {
-        install(switch (buildConfigObject(MetastoreTypeConfig.class).getMetastoreType()) {
-            case THRIFT -> new DeltaLakeThriftMetastoreModule();
-            case FILE -> new DeltaLakeFileMetastoreModule();
-            case GLUE -> new DeltaLakeGlueMetastoreModule();
-        });
-
-        install(new CachingHiveMetastoreModule());
+        DeltaLakeMetastoreType metastoreType = buildConfigObject(DeltaLakeMetastoreTypeConfig.class).getMetastoreType();
+        switch (metastoreType) {
+            case THRIFT -> {
+                install(new DeltaLakeThriftMetastoreModule());
+                install(new CachingHiveMetastoreModule());
+            }
+            case FILE -> {
+                install(new DeltaLakeFileMetastoreModule());
+                install(new CachingHiveMetastoreModule());
+            }
+            case GLUE -> {
+                install(new DeltaLakeGlueMetastoreModule());
+                install(new CachingHiveMetastoreModule());
+            }
+            case UNITY -> install(new DeltaLakeUnityMetastoreModule());
+        }
     }
 }

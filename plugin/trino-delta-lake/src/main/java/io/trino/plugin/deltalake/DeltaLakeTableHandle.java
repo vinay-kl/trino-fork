@@ -32,6 +32,7 @@ import java.util.Set;
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.trino.plugin.deltalake.DeltaLakeTableHandle.WriteType.UPDATE;
 import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
 
 public class DeltaLakeTableHandle
         implements LocatedTableHandle
@@ -47,6 +48,8 @@ public class DeltaLakeTableHandle
     private final String tableName;
     private final boolean managed;
     private final String location;
+    private final boolean catalogOwned;
+    private final Optional<String> tableId;
     private final MetadataEntry metadataEntry;
     private final ProtocolEntry protocolEntry;
     private final TupleDomain<DeltaLakeColumnHandle> enforcedPartitionConstraint;
@@ -77,6 +80,8 @@ public class DeltaLakeTableHandle
             @JsonProperty("tableName") String tableName,
             @JsonProperty("managed") boolean managed,
             @JsonProperty("location") String location,
+            @JsonProperty("catalogOwned") boolean catalogOwned,
+            @JsonProperty("tableId") Optional<String> tableId,
             @JsonProperty("metadataEntry") MetadataEntry metadataEntry,
             @JsonProperty("protocolEntry") ProtocolEntry protocolEntry,
             @JsonProperty("enforcedPartitionConstraint") TupleDomain<DeltaLakeColumnHandle> enforcedPartitionConstraint,
@@ -94,6 +99,8 @@ public class DeltaLakeTableHandle
                 tableName,
                 managed,
                 location,
+                catalogOwned,
+                tableId,
                 metadataEntry,
                 protocolEntry,
                 enforcedPartitionConstraint,
@@ -116,6 +123,8 @@ public class DeltaLakeTableHandle
             String tableName,
             boolean managed,
             String location,
+            boolean catalogOwned,
+            Optional<String> tableId,
             MetadataEntry metadataEntry,
             ProtocolEntry protocolEntry,
             TupleDomain<DeltaLakeColumnHandle> enforcedPartitionConstraint,
@@ -136,6 +145,8 @@ public class DeltaLakeTableHandle
         this.tableName = requireNonNull(tableName, "tableName is null");
         this.managed = managed;
         this.location = requireNonNull(location, "location is null");
+        this.catalogOwned = catalogOwned;
+        this.tableId = requireNonNullElse(tableId, Optional.empty());
         this.metadataEntry = requireNonNull(metadataEntry, "metadataEntry is null");
         this.protocolEntry = requireNonNull(protocolEntry, "protocolEntry is null");
         this.enforcedPartitionConstraint = requireNonNull(enforcedPartitionConstraint, "enforcedPartitionConstraint is null");
@@ -162,6 +173,8 @@ public class DeltaLakeTableHandle
                 tableName,
                 managed,
                 location,
+                catalogOwned,
+                tableId,
                 metadataEntry,
                 protocolEntry,
                 enforcedPartitionConstraint,
@@ -186,6 +199,8 @@ public class DeltaLakeTableHandle
                 tableName,
                 managed,
                 location,
+                catalogOwned,
+                tableId,
                 metadataEntry,
                 protocolEntry,
                 enforcedPartitionConstraint,
@@ -244,10 +259,22 @@ public class DeltaLakeTableHandle
         return getLocation();
     }
 
+    @JsonProperty
+    public boolean isCatalogOwned()
+    {
+        return catalogOwned;
+    }
+
+    @JsonProperty
+    public Optional<String> getTableId()
+    {
+        return tableId;
+    }
+
     @Override
     public VendedCredentialsHandle toCredentialsHandle()
     {
-        return new VendedCredentialsHandle(false, managed, location, Optional.empty());
+        return new VendedCredentialsHandle(catalogOwned, managed, location, tableId, Optional.empty());
     }
 
     @JsonProperty

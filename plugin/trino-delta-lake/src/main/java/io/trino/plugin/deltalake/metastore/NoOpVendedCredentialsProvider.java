@@ -13,11 +13,13 @@
  */
 package io.trino.plugin.deltalake.metastore;
 
+import io.trino.spi.connector.ConnectorSession;
+
 public class NoOpVendedCredentialsProvider
         implements VendedCredentialsProvider
 {
     @Override
-    public VendedCredentialsHandle getFreshCredentials(VendedCredentialsHandle handle)
+    public VendedCredentialsHandle getFreshCredentials(ConnectorSession session, VendedCredentialsHandle handle)
     {
         return handle;
     }

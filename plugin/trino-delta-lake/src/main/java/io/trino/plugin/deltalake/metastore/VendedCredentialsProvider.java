@@ -13,7 +13,9 @@
  */
 package io.trino.plugin.deltalake.metastore;
 
+import io.trino.spi.connector.ConnectorSession;
+
 public interface VendedCredentialsProvider
 {
-    VendedCredentialsHandle getFreshCredentials(VendedCredentialsHandle handle);
+    VendedCredentialsHandle getFreshCredentials(ConnectorSession session, VendedCredentialsHandle handle);
 }
