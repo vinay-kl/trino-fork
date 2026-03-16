@@ -100,7 +100,7 @@ public class DeltaLakeTableHandle
                 managed,
                 location,
                 catalogOwned,
-                tableId,
+                requireNonNullElse(tableId, Optional.empty()),
                 metadataEntry,
                 protocolEntry,
                 enforcedPartitionConstraint,
@@ -146,7 +146,7 @@ public class DeltaLakeTableHandle
         this.managed = managed;
         this.location = requireNonNull(location, "location is null");
         this.catalogOwned = catalogOwned;
-        this.tableId = requireNonNullElse(tableId, Optional.empty());
+        this.tableId = requireNonNull(tableId, "tableId is null");
         this.metadataEntry = requireNonNull(metadataEntry, "metadataEntry is null");
         this.protocolEntry = requireNonNull(protocolEntry, "protocolEntry is null");
         this.enforcedPartitionConstraint = requireNonNull(enforcedPartitionConstraint, "enforcedPartitionConstraint is null");
@@ -260,6 +260,12 @@ public class DeltaLakeTableHandle
     }
 
     @JsonProperty
+    public String getLocation()
+    {
+        return location;
+    }
+
+    @JsonProperty
     public boolean isCatalogOwned()
     {
         return catalogOwned;
@@ -274,13 +280,12 @@ public class DeltaLakeTableHandle
     @Override
     public VendedCredentialsHandle toCredentialsHandle()
     {
-        return new VendedCredentialsHandle(catalogOwned, managed, location, tableId, Optional.empty());
+        return new VendedCredentialsHandle(catalogOwned, managed, location, tableId, VendedCredentialsHandle.READ, Optional.empty());
     }
 
-    @JsonProperty
-    public String getLocation()
+    public VendedCredentialsHandle toWriteCredentialsHandle()
     {
-        return location;
+        return new VendedCredentialsHandle(catalogOwned, managed, location, tableId, VendedCredentialsHandle.READ_WRITE, Optional.empty());
     }
 
     @JsonProperty

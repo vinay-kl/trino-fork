@@ -30,9 +30,10 @@ import static io.trino.plugin.base.util.Closables.closeAllSuppress;
 import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
 import static java.nio.file.StandardOpenOption.CREATE_NEW;
 import static java.util.Objects.requireNonNull;
+import static java.lang.String.format;
 import static java.util.UUID.randomUUID;
 
-public class TestingLocalTransactionLogSynchronizer
+public final class TestingLocalTransactionLogSynchronizer
         implements TransactionLogSynchronizer
 {
     private final DeltaLakeFileSystemFactory fileSystemFactory;
@@ -49,7 +50,7 @@ public class TestingLocalTransactionLogSynchronizer
             TrinoFileSystem fileSystem = fileSystemFactory.create(session, credentialsHandle);
             Path targetPath = ((LocalFileSystem) fileSystem).toFilePath(newLogEntryPath);
             Files.createDirectories(targetPath.getParent());
-            Path tmpPath = targetPath.resolveSibling(".tmp.%s.%s".formatted(targetPath.getFileName().toString(), randomUUID()));
+            Path tmpPath = targetPath.resolveSibling(format(".tmp.%s.%s", targetPath.getFileName(), randomUUID()));
             Files.write(tmpPath, entryContents, CREATE_NEW);
             try {
                 // It's important that file is renamed atomically (hence the ATOMIC_MOVE option), as

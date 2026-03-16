@@ -14,6 +14,7 @@
 package io.trino.plugin.deltalake;
 
 import com.google.inject.Inject;
+import io.airlift.log.Logger;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.plugin.deltalake.metastore.FileSystemCredentials;
@@ -29,6 +30,8 @@ import static java.util.Objects.requireNonNull;
 public class DefaultDeltaLakeFileSystemFactory
         implements DeltaLakeFileSystemFactory
 {
+    private static final Logger log = Logger.get(DefaultDeltaLakeFileSystemFactory.class);
+
     private final TrinoFileSystemFactory fileSystemFactory;
     private final VendedCredentialsProvider vendedCredentialsProvider;
 
@@ -45,7 +48,10 @@ public class DefaultDeltaLakeFileSystemFactory
         requireNonNull(vendedCredentialsHandle, "vendedCredentialsHandle is null");
 
         ConnectorIdentity identity = session.getIdentity();
-        Optional<FileSystemCredentials> vendedCredentials = vendedCredentialsProvider.getFreshCredentials(session, vendedCredentialsHandle).vendedCredentials();
+        VendedCredentialsHandle refreshed = vendedCredentialsProvider.getFreshCredentials(session, vendedCredentialsHandle);
+        Optional<FileSystemCredentials> vendedCredentials = refreshed.vendedCredentials();
+        log.debug("create(VendedCredentialsHandle): catalogOwned=%s, operationType=%s, hasVendedCredentials=%s",
+                vendedCredentialsHandle.catalogOwned(), vendedCredentialsHandle.operationType(), vendedCredentials.isPresent());
         if (vendedCredentials.isPresent()) {
             // Do not include original credentials as they should not be used in vended mode
             ConnectorIdentity identityWithExtraCredentials = ConnectorIdentity.forUser(identity.getUser())

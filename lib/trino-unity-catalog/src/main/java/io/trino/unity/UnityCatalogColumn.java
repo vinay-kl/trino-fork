@@ -26,10 +26,16 @@ public record UnityCatalogColumn(
         @JsonProperty("type_name") String typeName,
         int position,
         String comment,
-        boolean nullable)
+        @JsonProperty("nullable") Boolean nullableOrNull)
 {
     @JsonCreator
     public UnityCatalogColumn {}
+
+    public boolean nullable()
+    {
+        // SQL convention: columns are nullable by default when not specified
+        return nullableOrNull == null || nullableOrNull;
+    }
 
     public Optional<String> optionalTypeText()
     {

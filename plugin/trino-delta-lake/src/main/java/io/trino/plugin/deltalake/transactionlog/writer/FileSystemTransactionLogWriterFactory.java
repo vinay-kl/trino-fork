@@ -37,7 +37,7 @@ public class FileSystemTransactionLogWriterFactory
     @Override
     public TransactionLogWriter createWriter(ConnectorSession session, DeltaLakeTableHandle tableHandle)
     {
-        return createWriter(session, tableHandle.location(), tableHandle.getMetadataEntry(), tableHandle.getProtocolEntry(), tableHandle.toCredentialsHandle());
+        return createWriter(session, tableHandle.location(), tableHandle.getMetadataEntry(), tableHandle.getProtocolEntry(), tableHandle.toWriteCredentialsHandle());
     }
 
     @Override

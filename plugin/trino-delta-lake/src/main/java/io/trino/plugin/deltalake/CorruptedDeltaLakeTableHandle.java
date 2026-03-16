@@ -23,10 +23,10 @@ import static java.util.Objects.requireNonNull;
 
 public record CorruptedDeltaLakeTableHandle(
         SchemaTableName schemaTableName,
-        boolean catalogOwned,
-        Optional<String> tableId,
         boolean managed,
         String location,
+        boolean catalogOwned,
+        Optional<String> tableId,
         TrinoException originalException)
         implements LocatedTableHandle
 {
@@ -47,6 +47,6 @@ public record CorruptedDeltaLakeTableHandle(
     @Override
     public VendedCredentialsHandle toCredentialsHandle()
     {
-        return new VendedCredentialsHandle(catalogOwned, managed, location, tableId, Optional.empty());
+        return new VendedCredentialsHandle(catalogOwned, managed, location, tableId, VendedCredentialsHandle.READ, Optional.empty());
     }
 }

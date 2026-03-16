@@ -21,11 +21,12 @@ import com.google.inject.TypeLiteral;
 import io.trino.metastore.HiveMetastore;
 import io.trino.metastore.HiveMetastoreFactory;
 import io.trino.metastore.cache.CachingHiveMetastore;
-import io.trino.spi.security.ConnectorIdentity;
 import io.trino.plugin.deltalake.AllowDeltaLakeManagedTableRename;
 import io.trino.plugin.deltalake.MaxTableParameterLength;
 import io.trino.plugin.deltalake.metastore.DeltaLakeMetastoreFactory;
 import io.trino.plugin.deltalake.metastore.DeltaLakeTableOperationsProvider;
+import io.trino.plugin.deltalake.metastore.VendedCredentialsProvider;
+import io.trino.spi.security.ConnectorIdentity;
 import io.trino.unity.UnityCatalogClient;
 import io.trino.unity.UnityCatalogConfig;
 import io.trino.unity.UnityCatalogTokenProvider;
@@ -45,11 +46,18 @@ final class TestingDeltaLakeUnityModule
 {
     private final UnityCatalogClient client;
     private final UnityCatalogTokenProvider tokenProvider;
+    private final boolean credentialVendingEnabled;
 
     TestingDeltaLakeUnityModule(UnityCatalogClient client, UnityCatalogTokenProvider tokenProvider)
     {
+        this(client, tokenProvider, false);
+    }
+
+    TestingDeltaLakeUnityModule(UnityCatalogClient client, UnityCatalogTokenProvider tokenProvider, boolean credentialVendingEnabled)
+    {
         this.client = requireNonNull(client, "client is null");
         this.tokenProvider = requireNonNull(tokenProvider, "tokenProvider is null");
+        this.credentialVendingEnabled = credentialVendingEnabled;
     }
 
     @Override
@@ -63,6 +71,12 @@ final class TestingDeltaLakeUnityModule
         binder.bind(DeltaLakeTableOperationsProvider.class).to(DeltaLakeUnityTableOperationsProvider.class).in(Scopes.SINGLETON);
         binder.bind(Key.get(boolean.class, AllowDeltaLakeManagedTableRename.class)).toInstance(false);
         binder.bind(Key.get(int.class, MaxTableParameterLength.class)).toInstance(0);
+
+        // Override default NoOpVendedCredentialsProvider when credential vending is enabled
+        if (credentialVendingEnabled) {
+            newOptionalBinder(binder, VendedCredentialsProvider.class)
+                    .setBinding().to(UnityCatalogVendedCredentialsProvider.class).in(Scopes.SINGLETON);
+        }
 
         // Unity Catalog does not use Hive metastore — satisfy DeltaLakeModule's default OptionalBinder
         binder.bind(HiveMetastoreFactory.class).toInstance(new HiveMetastoreFactory()

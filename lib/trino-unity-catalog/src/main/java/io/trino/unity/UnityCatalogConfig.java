@@ -19,7 +19,9 @@ import io.airlift.configuration.ConfigSecuritySensitive;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
 
+import java.net.InetAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
 
 public class UnityCatalogConfig
 {
@@ -38,6 +40,10 @@ public class UnityCatalogConfig
     private boolean fallbackToStaticToken;
     private boolean credentialVendingEnabled;
     private boolean allowHttpEndpoint;
+    private boolean validateTokenIdentity = true;
+    private String tokenIdentityClaim = "email";
+    private boolean bypassPermissionCacheOnWrite = true;
+    private boolean bypassCredentialCacheOnWrite = true;
 
     @NotNull
     public URI getServerUri()
@@ -157,6 +163,26 @@ public class UnityCatalogConfig
         return "https".equalsIgnoreCase(serverUri.getScheme());
     }
 
+    @AssertTrue(message = "Unity Catalog endpoint must not use loopback or link-local addresses")
+    public boolean isEndpointNotLoopbackOrLinkLocal()
+    {
+        if (serverUri == null) {
+            return true;
+        }
+        String host = serverUri.getHost();
+        if (host == null) {
+            return true;
+        }
+        try {
+            InetAddress address = InetAddress.getByName(host);
+            return !address.isLoopbackAddress() && !address.isLinkLocalAddress();
+        }
+        catch (UnknownHostException e) {
+            // Allow — DNS resolution may not work at config validation time
+            return true;
+        }
+    }
+
     @AssertTrue(message = "Static token is required when auth-type is STATIC")
     public boolean isStaticTokenPresentForStaticAuth()
     {
@@ -174,4 +200,67 @@ public class UnityCatalogConfig
         }
         return staticToken != null;
     }
+
+    public boolean isValidateTokenIdentity()
+    {
+        return validateTokenIdentity;
+    }
+
+    @Config("unity-catalog.validate-token-identity")
+    @ConfigDescription("Whether to validate that the JWT token identity matches the Trino user")
+    public UnityCatalogConfig setValidateTokenIdentity(boolean validateTokenIdentity)
+    {
+        this.validateTokenIdentity = validateTokenIdentity;
+        return this;
+    }
+
+    @NotNull
+    public String getTokenIdentityClaim()
+    {
+        return tokenIdentityClaim;
+    }
+
+    @Config("unity-catalog.token-identity-claim")
+    @ConfigDescription("JWT claim to use for token identity validation (default: email)")
+    public UnityCatalogConfig setTokenIdentityClaim(String tokenIdentityClaim)
+    {
+        this.tokenIdentityClaim = tokenIdentityClaim;
+        return this;
+    }
+
+    public boolean isBypassPermissionCacheOnWrite()
+    {
+        return bypassPermissionCacheOnWrite;
+    }
+
+    @Config("unity-catalog.bypass-permission-cache-on-write")
+    @ConfigDescription("Always fetch fresh permissions from UC on write operations (DDL/DML), bypassing the permission cache")
+    public UnityCatalogConfig setBypassPermissionCacheOnWrite(boolean bypassPermissionCacheOnWrite)
+    {
+        this.bypassPermissionCacheOnWrite = bypassPermissionCacheOnWrite;
+        return this;
+    }
+
+    public boolean isBypassCredentialCacheOnWrite()
+    {
+        return bypassCredentialCacheOnWrite;
+    }
+
+    @Config("unity-catalog.bypass-credential-cache-on-write")
+    @ConfigDescription("Always fetch fresh vended credentials from UC on write operations, bypassing the credential cache")
+    public UnityCatalogConfig setBypassCredentialCacheOnWrite(boolean bypassCredentialCacheOnWrite)
+    {
+        this.bypassCredentialCacheOnWrite = bypassCredentialCacheOnWrite;
+        return this;
+    }
+
+    @AssertTrue(message = "EXTRA_CREDENTIALS auth with fallback to static token is not allowed (credential omission would escalate to service principal)")
+    public boolean isExtraCredentialsFallbackNotAllowed()
+    {
+        if (authType != AuthType.EXTRA_CREDENTIALS) {
+            return true;
+        }
+        return !fallbackToStaticToken;
+    }
+
 }

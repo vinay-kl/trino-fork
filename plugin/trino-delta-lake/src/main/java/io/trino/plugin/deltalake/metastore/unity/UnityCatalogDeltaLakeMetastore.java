@@ -105,7 +105,7 @@ public class UnityCatalogDeltaLakeMetastore
         return fetchUnityCatalogTable(databaseName, tableName)
                 .map(ucTable -> new DeltaMetastoreTable(
                         new SchemaTableName(databaseName, tableName),
-                        false,
+                        isManagedTable(ucTable),
                         ucTable.storageLocation(),
                         true,
                         Optional.ofNullable(ucTable.tableId())));
@@ -168,6 +168,12 @@ public class UnityCatalogDeltaLakeMetastore
         throw new TrinoException(NOT_SUPPORTED, "Unity Catalog does not support renaming Delta Lake tables");
     }
 
+    @Override
+    public boolean isCredentialVendingEnabled()
+    {
+        return true;
+    }
+
     private Optional<UnityCatalogTable> fetchUnityCatalogTable(String databaseName, String tableName)
     {
         SchemaTableName schemaTableName = new SchemaTableName(databaseName, tableName);
@@ -188,6 +194,11 @@ public class UnityCatalogDeltaLakeMetastore
                 && table.storageLocation() != null;
     }
 
+    private static boolean isManagedTable(UnityCatalogTable table)
+    {
+        return "MANAGED".equalsIgnoreCase(table.tableType());
+    }
+
     private static Database toDatabase(UnityCatalogSchema schema)
     {
         Database.Builder builder = Database.builder()
@@ -200,6 +211,7 @@ public class UnityCatalogDeltaLakeMetastore
 
     static Table toSyntheticHiveTable(String databaseName, String tableName, UnityCatalogTable ucTable)
     {
+        requireNonNull(ucTable.storageLocation(), "storageLocation is null");
         Storage storage = Storage.builder()
                 .setStorageFormat(StorageFormat.NULL_STORAGE_FORMAT)
                 .setLocation(Optional.ofNullable(ucTable.storageLocation()))

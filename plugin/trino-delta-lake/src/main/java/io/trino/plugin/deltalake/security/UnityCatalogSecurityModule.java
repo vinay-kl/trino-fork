@@ -11,13 +11,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.deltalake.metastore;
+package io.trino.plugin.deltalake.security;
 
-import io.trino.spi.connector.ConnectorSession;
+import com.google.inject.Binder;
+import com.google.inject.Module;
+import com.google.inject.Scopes;
+import io.trino.spi.connector.ConnectorAccessControl;
 
-public interface VendedCredentialsProvider
+public class UnityCatalogSecurityModule
+        implements Module
 {
-    VendedCredentialsHandle getFreshCredentials(ConnectorSession session, VendedCredentialsHandle handle);
-
-    default void queryCompleted(String queryId) {}
+    @Override
+    public void configure(Binder binder)
+    {
+        binder.bind(ConnectorAccessControl.class).to(UnityCatalogAccessControl.class).in(Scopes.SINGLETON);
+    }
 }

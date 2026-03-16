@@ -27,10 +27,19 @@ public class OAuth2TokenProvider
     private static final String OAUTH2_ACCESS_TOKEN_KEY = "internal$oauth2.access-token";
 
     private final Optional<String> fallbackToken;
+    private final boolean validateTokenIdentity;
+    private final String tokenIdentityClaim;
 
     public OAuth2TokenProvider(Optional<String> fallbackToken)
     {
+        this(fallbackToken, false, "email");
+    }
+
+    public OAuth2TokenProvider(Optional<String> fallbackToken, boolean validateTokenIdentity, String tokenIdentityClaim)
+    {
         this.fallbackToken = requireNonNull(fallbackToken, "fallbackToken is null");
+        this.validateTokenIdentity = validateTokenIdentity;
+        this.tokenIdentityClaim = requireNonNull(tokenIdentityClaim, "tokenIdentityClaim is null");
     }
 
     @Override
@@ -38,6 +47,9 @@ public class OAuth2TokenProvider
     {
         String token = identity.getExtraCredentials().get(OAUTH2_ACCESS_TOKEN_KEY);
         if (token != null) {
+            if (validateTokenIdentity) {
+                TokenIdentityValidator.validateIdentity(token, identity.getUser(), tokenIdentityClaim);
+            }
             return token;
         }
         return fallbackToken.orElseThrow(() -> new TrinoException(

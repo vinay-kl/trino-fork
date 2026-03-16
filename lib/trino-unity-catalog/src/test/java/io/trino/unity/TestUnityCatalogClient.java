@@ -33,6 +33,7 @@ import java.util.function.Function;
 
 import static com.google.common.net.HttpHeaders.CONTENT_TYPE;
 import static com.google.common.net.MediaType.JSON_UTF_8;
+import static io.trino.spi.StandardErrorCode.ALREADY_EXISTS;
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.StandardErrorCode.NOT_FOUND;
 import static io.trino.spi.StandardErrorCode.PERMISSION_DENIED;
@@ -601,9 +602,9 @@ final class TestUnityCatalogClient
         UnityCatalogClient client = new UnityCatalogClient(new TestingHttpClient(processor), BASE_URI);
         assertThatThrownBy(() -> client.createSchema(TEST_TOKEN, "unity", "existing", Optional.empty()))
                 .isInstanceOf(TrinoException.class)
-                .hasMessageContaining("conflict")
+                .hasMessageContaining("already exists")
                 .extracting(e -> ((TrinoException) e).getErrorCode())
-                .isEqualTo(GENERIC_INTERNAL_ERROR.toErrorCode());
+                .isEqualTo(ALREADY_EXISTS.toErrorCode());
     }
 
     @Test
@@ -655,7 +656,7 @@ final class TestUnityCatalogClient
         UnityCatalogClient client = new UnityCatalogClient(new TestingHttpClient(processor), BASE_URI);
         assertThatThrownBy(() -> client.listSchemas(TEST_TOKEN, "unity"))
                 .isInstanceOf(TrinoException.class)
-                .hasMessageContaining("status 500");
+                .hasMessageContaining("Unity Catalog error (HTTP 500)");
     }
 
     // --- Security tests ---
@@ -900,9 +901,10 @@ final class TestUnityCatalogClient
         UnityCatalogClient client = new UnityCatalogClient(httpClient, BASE_URI);
         assertThatThrownBy(() -> client.listSchemas("super-secret", "unity"))
                 .isInstanceOf(TrinoException.class)
+                // The sanitized message must not contain the token
                 .hasMessageNotContaining("super-secret")
-                // The cause chain is stripped — the TrinoException should NOT propagate the original cause
-                .satisfies(e -> assertThat(e.getCause()).isNull());
+                // The cause is preserved for diagnostics but the TrinoException message itself is sanitized
+                .satisfies(e -> assertThat(e.getCause()).isNotNull());
     }
 
     @Test
@@ -915,7 +917,7 @@ final class TestUnityCatalogClient
         assertThatThrownBy(() -> client.listSchemas("dapi-super-secret-token-xyz", "unity"))
                 .isInstanceOf(TrinoException.class)
                 .hasMessageNotContaining("dapi-super-secret-token-xyz")
-                .hasMessageContaining("access denied");
+                .hasMessageContaining("Access Denied");
     }
 
     @Test

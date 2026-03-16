@@ -20,6 +20,8 @@ import io.trino.plugin.tpch.TpchPlugin;
 import io.trino.testing.DistributedQueryRunner;
 import io.trino.testing.MaterializedResult;
 import io.trino.unity.StaticTokenProvider;
+import io.trino.unity.TemporaryCredentials;
+import io.trino.unity.TemporaryCredentials.AwsTempCredentials;
 import io.trino.unity.UnityCatalogSchema;
 import io.trino.unity.UnityCatalogTable;
 import org.junit.jupiter.api.AfterAll;
@@ -31,6 +33,9 @@ import org.junit.jupiter.api.parallel.Execution;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 
 import static io.trino.plugin.deltalake.DeltaLakeConnectorFactory.CONNECTOR_NAME;
@@ -109,6 +114,14 @@ final class TestDeltaLakeUnityConnectorQueries
                 null,
                 null));
 
+        // Configure credential vending for write operation tests
+        String expirationMs = String.valueOf(Instant.now().plus(Duration.ofHours(1)).toEpochMilli());
+        client.setTemporaryCredentials(new TemporaryCredentials(
+                new AwsTempCredentials("test-access-key", "test-secret-key", "test-session-token", expirationMs),
+                null,
+                null,
+                null));
+
         // Use STATIC auth for simplicity
         StaticTokenProvider tokenProvider = new StaticTokenProvider("test-static-token");
 
@@ -117,14 +130,15 @@ final class TestDeltaLakeUnityConnectorQueries
 
         queryRunner.installPlugin(new TestingDeltaLakePlugin(
                 dataDir,
-                () -> Optional.of(new TestingDeltaLakeUnityModule(client, tokenProvider))));
+                () -> Optional.of(new TestingDeltaLakeUnityModule(client, tokenProvider, true))));
 
         queryRunner.createCatalog(DELTA_CATALOG, CONNECTOR_NAME, ImmutableMap.<String, String>builder()
-                .put("unity-catalog.server-uri", "http://localhost:0")
+                .put("unity-catalog.server-uri", "http://unity-catalog.test.invalid:443")
                 .put("unity-catalog.catalog-name", UC_CATALOG_NAME)
                 .put("unity-catalog.auth-type", "STATIC")
                 .put("unity-catalog.static-token", "test-static-token")
                 .put("unity-catalog.allow-http-endpoint", "true")
+                .put("unity-catalog.credential-vending-enabled", "true")
                 .put("delta.enable-non-concurrent-writes", "true")
                 .buildOrThrow());
     }
@@ -305,5 +319,212 @@ final class TestDeltaLakeUnityConnectorQueries
         assertThat(result.getMaterializedRows().stream()
                 .map(row -> (String) row.getField(0)))
                 .doesNotContain(tableName);
+    }
+
+    @Test
+    void testCreateTableAsSelect()
+    {
+        String tableName = "ctas_table_" + randomNameSuffix();
+        String location = "local:///" + TEST_SCHEMA + "/" + tableName;
+        queryRunner.execute("CREATE TABLE " + TEST_SCHEMA + "." + tableName
+                + " WITH (location = '" + location + "')"
+                + " AS SELECT 1 AS col1, 'hello' AS col2");
+
+        MaterializedResult result = queryRunner.execute("SELECT * FROM " + TEST_SCHEMA + "." + tableName);
+        assertThat(result.getRowCount()).isEqualTo(1);
+        assertThat(result.getMaterializedRows().getFirst().getField(0)).isEqualTo(1);
+        assertThat(result.getMaterializedRows().getFirst().getField(1)).isEqualTo("hello");
+
+        // Verify table was registered in UC
+        assertThat(queryRunner.execute("SHOW TABLES FROM " + TEST_SCHEMA)
+                .getMaterializedRows().stream()
+                .map(row -> (String) row.getField(0)))
+                .contains(tableName);
+
+        // Clean up
+        queryRunner.execute("DROP TABLE " + TEST_SCHEMA + "." + tableName);
+    }
+
+    @Test
+    void testCreateTableAsSelectRequestsPathCredentials()
+    {
+        String tableName = "ctas_path_cred_" + randomNameSuffix();
+        String location = "local:///" + TEST_SCHEMA + "/" + tableName;
+
+        queryRunner.execute("CREATE TABLE " + TEST_SCHEMA + "." + tableName
+                + " WITH (location = '" + location + "')"
+                + " AS SELECT 1 AS col1");
+
+        // CTAS should request path credentials (not table credentials) since the table doesn't exist yet
+        List<TestingUnityCatalogClient.PathCredentialRequest> tableRequests = client.pathCredentialRequests().stream()
+                .filter(req -> req.url().contains(tableName))
+                .toList();
+        assertThat(tableRequests).isNotEmpty();
+        assertThat(tableRequests).allMatch(req -> "PATH_CREATE_TABLE".equals(req.operation()));
+
+        // Verify the table was created and data is readable
+        MaterializedResult result = queryRunner.execute("SELECT * FROM " + TEST_SCHEMA + "." + tableName);
+        assertThat(result.getRowCount()).isEqualTo(1);
+
+        queryRunner.execute("DROP TABLE " + TEST_SCHEMA + "." + tableName);
+    }
+
+    @Test
+    void testCreateTableDdlRequestsPathCredentials()
+    {
+        String tableName = "create_ddl_path_cred_" + randomNameSuffix();
+        String location = "local:///" + TEST_SCHEMA + "/" + tableName;
+
+        queryRunner.execute("CREATE TABLE " + TEST_SCHEMA + "." + tableName
+                + " (col1 INTEGER) WITH (location = '" + location + "')");
+
+        // DDL CREATE TABLE should also request path credentials
+        List<TestingUnityCatalogClient.PathCredentialRequest> tableRequests = client.pathCredentialRequests().stream()
+                .filter(req -> req.url().contains(tableName))
+                .toList();
+        assertThat(tableRequests).isNotEmpty();
+        assertThat(tableRequests).allMatch(req -> "PATH_CREATE_TABLE".equals(req.operation()));
+
+        queryRunner.execute("DROP TABLE " + TEST_SCHEMA + "." + tableName);
+    }
+
+    @Test
+    void testInsertRequestsWriteCredentials()
+    {
+        String tableName = "insert_cred_test_" + randomNameSuffix();
+        String location = "local:///" + TEST_SCHEMA + "/" + tableName;
+        queryRunner.execute("CREATE TABLE " + TEST_SCHEMA + "." + tableName
+                + " WITH (location = '" + location + "')"
+                + " AS SELECT 1 AS col1");
+
+        // The table now exists in UC with tableId "table-id-<name>"
+        String tableId = "table-id-" + tableName;
+
+        queryRunner.execute("INSERT INTO " + TEST_SCHEMA + "." + tableName + " VALUES (2)");
+
+        // Verify credential vending was called with READ_WRITE for this table
+        assertThat(client.operationsForTable(tableId)).contains("READ_WRITE");
+
+        // Clean up
+        queryRunner.execute("DROP TABLE " + TEST_SCHEMA + "." + tableName);
+    }
+
+    @Test
+    void testAlterTableAddColumnRequestsWriteCredentials()
+    {
+        String tableName = "alter_col_test_" + randomNameSuffix();
+        String location = "local:///" + TEST_SCHEMA + "/" + tableName;
+        queryRunner.execute("CREATE TABLE " + TEST_SCHEMA + "." + tableName
+                + " WITH (location = '" + location + "')"
+                + " AS SELECT 1 AS col1");
+
+        String tableId = "table-id-" + tableName;
+
+        queryRunner.execute("ALTER TABLE " + TEST_SCHEMA + "." + tableName + " ADD COLUMN col2 VARCHAR");
+
+        // DDL operations write to _delta_log/ and require READ_WRITE credentials
+        assertThat(client.operationsForTable(tableId)).contains("READ_WRITE");
+
+        // Verify column was added
+        MaterializedResult columns = queryRunner.execute("DESCRIBE " + TEST_SCHEMA + "." + tableName);
+        assertThat(columns.getMaterializedRows().stream()
+                .map(row -> (String) row.getField(0)))
+                .contains("col1", "col2");
+
+        // Clean up
+        queryRunner.execute("DROP TABLE " + TEST_SCHEMA + "." + tableName);
+    }
+
+    @Test
+    void testCommentOnTableRequestsWriteCredentials()
+    {
+        String tableName = "comment_test_" + randomNameSuffix();
+        String location = "local:///" + TEST_SCHEMA + "/" + tableName;
+        queryRunner.execute("CREATE TABLE " + TEST_SCHEMA + "." + tableName
+                + " WITH (location = '" + location + "')"
+                + " AS SELECT 1 AS col1");
+
+        String tableId = "table-id-" + tableName;
+
+        queryRunner.execute("COMMENT ON TABLE " + TEST_SCHEMA + "." + tableName + " IS 'test comment'");
+
+        // COMMENT writes to _delta_log/ and requires READ_WRITE credentials
+        assertThat(client.operationsForTable(tableId)).contains("READ_WRITE");
+
+        // Clean up
+        queryRunner.execute("DROP TABLE " + TEST_SCHEMA + "." + tableName);
+    }
+
+    @Test
+    void testDeleteRequestsWriteCredentials()
+    {
+        String tableName = "delete_test_" + randomNameSuffix();
+        String location = "local:///" + TEST_SCHEMA + "/" + tableName;
+        queryRunner.execute("CREATE TABLE " + TEST_SCHEMA + "." + tableName
+                + " WITH (location = '" + location + "')"
+                + " AS SELECT 1 AS col1");
+
+        String tableId = "table-id-" + tableName;
+
+        queryRunner.execute("DELETE FROM " + TEST_SCHEMA + "." + tableName + " WHERE col1 = 1");
+
+        assertThat(client.operationsForTable(tableId)).contains("READ_WRITE");
+
+        // Verify data was deleted
+        MaterializedResult result = queryRunner.execute("SELECT count(*) FROM " + TEST_SCHEMA + "." + tableName);
+        assertThat(result.getMaterializedRows().getFirst().getField(0)).isEqualTo(0L);
+
+        // Clean up
+        queryRunner.execute("DROP TABLE " + TEST_SCHEMA + "." + tableName);
+    }
+
+    @Test
+    void testUpdateRequestsWriteCredentials()
+    {
+        String tableName = "update_test_" + randomNameSuffix();
+        String location = "local:///" + TEST_SCHEMA + "/" + tableName;
+        queryRunner.execute("CREATE TABLE " + TEST_SCHEMA + "." + tableName
+                + " WITH (location = '" + location + "')"
+                + " AS SELECT 1 AS col1");
+
+        String tableId = "table-id-" + tableName;
+
+        queryRunner.execute("UPDATE " + TEST_SCHEMA + "." + tableName + " SET col1 = 42 WHERE col1 = 1");
+
+        assertThat(client.operationsForTable(tableId)).contains("READ_WRITE");
+
+        // Verify data was updated
+        MaterializedResult result = queryRunner.execute("SELECT col1 FROM " + TEST_SCHEMA + "." + tableName);
+        assertThat(result.getMaterializedRows().getFirst().getField(0)).isEqualTo(42);
+
+        // Clean up
+        queryRunner.execute("DROP TABLE " + TEST_SCHEMA + "." + tableName);
+    }
+
+    @Test
+    void testSelectRequestsReadCredentials()
+    {
+        // Use a dedicated table to avoid interference from concurrent tests
+        String tableName = "select_cred_test_" + randomNameSuffix();
+        String location = "local:///" + TEST_SCHEMA + "/" + tableName;
+        queryRunner.execute("CREATE TABLE " + TEST_SCHEMA + "." + tableName
+                + " WITH (location = '" + location + "')"
+                + " AS SELECT 1 AS col1");
+
+        String tableId = "table-id-" + tableName;
+
+        // Clear any CTAS operations by noting current count
+        int operationsBefore = client.operationsForTable(tableId).size();
+
+        queryRunner.execute("SELECT * FROM " + TEST_SCHEMA + "." + tableName);
+
+        // SELECT should only use READ credentials, never READ_WRITE
+        List<String> readOperations = client.operationsForTable(tableId).subList(
+                operationsBefore, client.operationsForTable(tableId).size());
+        assertThat(readOperations).isNotEmpty();
+        assertThat(readOperations).allMatch("READ"::equals);
+
+        // Clean up
+        queryRunner.execute("DROP TABLE " + TEST_SCHEMA + "." + tableName);
     }
 }

@@ -19,6 +19,7 @@ import io.trino.spi.security.ConnectorIdentity;
 import java.util.Optional;
 
 import static io.trino.spi.StandardErrorCode.PERMISSION_DENIED;
+import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 public class ExtraCredentialsTokenProvider
@@ -26,11 +27,20 @@ public class ExtraCredentialsTokenProvider
 {
     private final String credentialName;
     private final Optional<String> fallbackToken;
+    private final boolean validateTokenIdentity;
+    private final String tokenIdentityClaim;
 
     public ExtraCredentialsTokenProvider(String credentialName, Optional<String> fallbackToken)
     {
+        this(credentialName, fallbackToken, false, "email");
+    }
+
+    public ExtraCredentialsTokenProvider(String credentialName, Optional<String> fallbackToken, boolean validateTokenIdentity, String tokenIdentityClaim)
+    {
         this.credentialName = requireNonNull(credentialName, "credentialName is null");
         this.fallbackToken = requireNonNull(fallbackToken, "fallbackToken is null");
+        this.validateTokenIdentity = validateTokenIdentity;
+        this.tokenIdentityClaim = requireNonNull(tokenIdentityClaim, "tokenIdentityClaim is null");
     }
 
     @Override
@@ -38,10 +48,13 @@ public class ExtraCredentialsTokenProvider
     {
         String token = identity.getExtraCredentials().get(credentialName);
         if (token != null) {
+            if (validateTokenIdentity) {
+                TokenIdentityValidator.validateIdentity(token, identity.getUser(), tokenIdentityClaim);
+            }
             return token;
         }
         return fallbackToken.orElseThrow(() -> new TrinoException(
                 PERMISSION_DENIED,
-                "Unity Catalog token not found in extra credentials key '%s' and no fallback is configured".formatted(credentialName)));
+                format("Unity Catalog token not found in extra credentials key '%s' and no fallback is configured", credentialName)));
     }
 }

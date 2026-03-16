@@ -19,6 +19,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.Optional;
 
+import static java.lang.String.format;
+
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record TemporaryCredentials(
         @JsonProperty("aws_temp_credentials") AwsTempCredentials awsTempCredentialsOrNull,
@@ -27,7 +29,14 @@ public record TemporaryCredentials(
         @JsonProperty("expiration_time") Object expirationTimeOrNull)
 {
     @JsonCreator
-    public TemporaryCredentials {}
+    public TemporaryCredentials
+    {
+        // Normalize expiration_time to String for consistent equals()/hashCode()
+        // UC API may return this as a number (epoch millis) or a string
+        if (expirationTimeOrNull != null) {
+            expirationTimeOrNull = String.valueOf(expirationTimeOrNull);
+        }
+    }
 
     /**
      * Databricks UC returns expiration_time at the top level of the credential response
@@ -40,7 +49,7 @@ public record TemporaryCredentials(
         if (expirationTimeOrNull == null) {
             return Optional.empty();
         }
-        return Optional.of(String.valueOf(expirationTimeOrNull));
+        return Optional.of((String) expirationTimeOrNull);
     }
 
     public Optional<AwsTempCredentials> awsTempCredentials()
@@ -58,6 +67,13 @@ public record TemporaryCredentials(
         return Optional.ofNullable(gcpTempCredentialsOrNull);
     }
 
+    @Override
+    public String toString()
+    {
+        return format("TemporaryCredentials[hasAws=%s, hasAzure=%s, hasGcp=%s]",
+                awsTempCredentialsOrNull != null, azureTempCredentialsOrNull != null, gcpTempCredentialsOrNull != null);
+    }
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record AwsTempCredentials(
             @JsonProperty("access_key_id") String accessKeyId,
@@ -67,6 +83,12 @@ public record TemporaryCredentials(
     {
         @JsonCreator
         public AwsTempCredentials {}
+
+        @Override
+        public String toString()
+        {
+            return format("AwsTempCredentials[accessKeyId=%s]", accessKeyId);
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -76,6 +98,12 @@ public record TemporaryCredentials(
     {
         @JsonCreator
         public AzureTempCredentials {}
+
+        @Override
+        public String toString()
+        {
+            return format("AzureTempCredentials[hasSasToken=%s]", sasToken != null);
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -85,5 +113,11 @@ public record TemporaryCredentials(
     {
         @JsonCreator
         public GcpTempCredentials {}
+
+        @Override
+        public String toString()
+        {
+            return format("GcpTempCredentials[hasOauthToken=%s]", oauthToken != null);
+        }
     }
 }

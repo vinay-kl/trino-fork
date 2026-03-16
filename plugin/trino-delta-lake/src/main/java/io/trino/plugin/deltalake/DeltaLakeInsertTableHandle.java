@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.deltalake;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.google.common.collect.ImmutableList;
 import io.trino.plugin.deltalake.metastore.VendedCredentialsHandle;
 import io.trino.plugin.deltalake.transactionlog.MetadataEntry;
@@ -24,6 +25,7 @@ import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record DeltaLakeInsertTableHandle(
         SchemaTableName tableName,
         String location,
@@ -42,7 +44,10 @@ public record DeltaLakeInsertTableHandle(
         requireNonNull(protocolEntry, "protocolEntry is null");
         inputColumns = ImmutableList.copyOf(requireNonNull(inputColumns, "inputColumns is null"));
         requireNonNull(location, "location is null");
-        requireNonNull(credentialsHandle, "credentialsHandle is null");
+        // Backward compat: old serialized handles from rolling restart won't have credentialsHandle
+        if (credentialsHandle == null) {
+            credentialsHandle = VendedCredentialsHandle.empty(location);
+        }
     }
 
     @Override

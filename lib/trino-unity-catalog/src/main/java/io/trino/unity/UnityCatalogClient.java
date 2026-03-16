@@ -41,6 +41,7 @@ import static io.airlift.http.client.JsonBodyGenerator.jsonBodyGenerator;
 import static io.airlift.http.client.Request.Builder.prepareDelete;
 import static io.airlift.http.client.Request.Builder.prepareGet;
 import static io.airlift.http.client.Request.Builder.preparePost;
+import static io.trino.spi.StandardErrorCode.ALREADY_EXISTS;
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.StandardErrorCode.NOT_FOUND;
 import static io.trino.spi.StandardErrorCode.PERMISSION_DENIED;
@@ -50,6 +51,7 @@ import static java.util.Objects.requireNonNull;
 public class UnityCatalogClient
 {
     private static final Logger log = Logger.get(UnityCatalogClient.class);
+    private static final int MAX_PAGINATION_PAGES = 1000;
 
     private final HttpClient httpClient;
     private final URI baseUri;
@@ -68,6 +70,7 @@ public class UnityCatalogClient
     {
         ImmutableList.Builder<UnityCatalogSchema> allSchemas = ImmutableList.builder();
         String pageToken = null;
+        int pageCount = 0;
         do {
             HttpUriBuilder uriBuilder = uriBuilderFrom(baseUri)
                     .appendPath("/schemas")
@@ -84,6 +87,10 @@ public class UnityCatalogClient
                 }
             }
             pageToken = extractPageToken(response);
+            pageCount++;
+            if (pageCount >= MAX_PAGINATION_PAGES) {
+                throw new TrinoException(GENERIC_INTERNAL_ERROR, format("Unity Catalog pagination exceeded %d pages for schemas in catalog %s", MAX_PAGINATION_PAGES, catalogName));
+            }
         }
         while (pageToken != null);
         return allSchemas.build();
@@ -131,6 +138,7 @@ public class UnityCatalogClient
     {
         ImmutableList.Builder<UnityCatalogTable> allTables = ImmutableList.builder();
         String pageToken = null;
+        int pageCount = 0;
         do {
             HttpUriBuilder uriBuilder = uriBuilderFrom(baseUri)
                     .appendPath("/tables")
@@ -148,6 +156,10 @@ public class UnityCatalogClient
                 }
             }
             pageToken = extractPageToken(response);
+            pageCount++;
+            if (pageCount >= MAX_PAGINATION_PAGES) {
+                throw new TrinoException(GENERIC_INTERNAL_ERROR, format("Unity Catalog pagination exceeded %d pages for tables in %s.%s", MAX_PAGINATION_PAGES, catalogName, schemaName));
+            }
         }
         while (pageToken != null);
         return allTables.build();
@@ -187,12 +199,70 @@ public class UnityCatalogClient
         executeDelete(uri, token);
     }
 
+    public List<String> getEffectivePermissions(String token, String securableType, String fullName)
+    {
+        URI uri = uriBuilderFrom(baseUri)
+                .appendPath("/effective-permissions")
+                .appendPath(securableType)
+                .appendPath(fullName)
+                .build();
+        try {
+            long startNanos = System.nanoTime();
+            JsonNode response = executeGet(uri, token);
+            long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
+            log.debug("UC API getEffectivePermissions took %dms for %s %s", elapsedMs, securableType, fullName);
+            JsonNode privilegeAssignments = response.path("privilege_assignments");
+            if (!privilegeAssignments.isArray()) {
+                return ImmutableList.of();
+            }
+            ImmutableList.Builder<String> privileges = ImmutableList.builder();
+            for (JsonNode assignment : privilegeAssignments) {
+                JsonNode privilegeNode = assignment.path("privileges");
+                if (privilegeNode.isArray()) {
+                    for (JsonNode effectivePrivilege : privilegeNode) {
+                        // Databricks UC returns EffectivePrivilege objects: {"privilege": "SELECT", ...}
+                        // OSS UC may return plain strings
+                        JsonNode privilegeName = effectivePrivilege.path("privilege");
+                        if (privilegeName.isTextual()) {
+                            privileges.add(privilegeName.asText());
+                        }
+                        else if (effectivePrivilege.isTextual()) {
+                            privileges.add(effectivePrivilege.asText());
+                        }
+                    }
+                }
+            }
+            return privileges.build();
+        }
+        catch (TrinoException e) {
+            if (e.getErrorCode().equals(NOT_FOUND.toErrorCode())) {
+                return ImmutableList.of();
+            }
+            throw e;
+        }
+    }
+
     public TemporaryCredentials generateTemporaryTableCredentials(String token, String tableId, String operation)
     {
         URI uri = uriBuilderFrom(baseUri).appendPath("/temporary-table-credentials").build();
+        long startNanos = System.nanoTime();
         JsonNode response = executePost(uri, token, ImmutableMap.of(
                 "table_id", tableId,
                 "operation", operation));
+        long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
+        log.debug("UC API generateTemporaryTableCredentials took %dms for tableId=%s, operation=%s", elapsedMs, tableId, operation);
+        return deserialize(response, TemporaryCredentials.class);
+    }
+
+    public TemporaryCredentials generateTemporaryPathCredentials(String token, String url, String operation)
+    {
+        URI uri = uriBuilderFrom(baseUri).appendPath("/temporary-path-credentials").build();
+        long startNanos = System.nanoTime();
+        JsonNode response = executePost(uri, token, ImmutableMap.of(
+                "url", url,
+                "operation", operation));
+        long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
+        log.debug("UC API generateTemporaryPathCredentials took %dms for operation=%s", elapsedMs, operation);
         return deserialize(response, TemporaryCredentials.class);
     }
 
@@ -225,25 +295,40 @@ public class UnityCatalogClient
         execute(request);
     }
 
+    private static final int MAX_RETRIES = 3;
+    private static final long[] RETRY_DELAYS_MS = {1000, 2000, 4000};
+
     private JsonNode execute(Request request)
     {
-        FullJsonResponseHandler.JsonResponse<JsonNode> response;
-        try {
-            response = httpClient.execute(request, createFullJsonResponseHandler(jsonCodec));
-        }
-        catch (RuntimeException e) {
-            // Strip token from exception messages (UC-SEC-004)
-            throw sanitizedException("Unity Catalog request failed: %s".formatted(request.getUri().getPath()), e);
-        }
-        int statusCode = response.getStatusCode();
-        if (HttpStatus.familyForStatusCode(statusCode) == HttpStatus.Family.SUCCESSFUL) {
-            if (!response.hasValue()) {
-                // Some successful responses (e.g., DELETE) may not have a body
-                return objectMapper.createObjectNode();
+        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            FullJsonResponseHandler.JsonResponse<JsonNode> response;
+            try {
+                response = httpClient.execute(request, createFullJsonResponseHandler(jsonCodec));
             }
-            return response.getValue();
+            catch (RuntimeException e) {
+                // Strip token from exception messages (UC-SEC-004)
+                throw sanitizedException(format("Unity Catalog request failed: %s", request.getUri().getPath()), e);
+            }
+            int statusCode = response.getStatusCode();
+            if (HttpStatus.familyForStatusCode(statusCode) == HttpStatus.Family.SUCCESSFUL) {
+                if (!response.hasValue()) {
+                    // Some successful responses (e.g., DELETE) may not have a body
+                    return objectMapper.createObjectNode();
+                }
+                return response.getValue();
+            }
+            if (statusCode == 429 && attempt < MAX_RETRIES) {
+                try {
+                    Thread.sleep(RETRY_DELAYS_MS[attempt]);
+                }
+                catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new TrinoException(GENERIC_INTERNAL_ERROR, "Interrupted during Unity Catalog retry");
+                }
+                continue;
+            }
+            handleErrorResponse(statusCode, request.getUri().getPath(), response);
         }
-        handleErrorResponse(statusCode, request.getUri().getPath(), response);
         // unreachable — handleErrorResponse always throws
         throw new TrinoException(GENERIC_INTERNAL_ERROR, "Unexpected error");
     }
@@ -252,24 +337,61 @@ public class UnityCatalogClient
     {
         // Extract error message from response body if available, but never include tokens
         String errorMessage = extractSafeErrorMessage(response);
+        String resource = extractResourceName(path);
         switch (statusCode) {
             case 401, 403 -> throw new TrinoException(PERMISSION_DENIED,
-                    format("Unity Catalog access denied for %s: %s", path, errorMessage));
+                    format("Access Denied%s", formatDetail(errorMessage)));
             case 404 -> throw new TrinoException(NOT_FOUND,
-                    format("Unity Catalog resource not found: %s", path));
-            case 409 -> throw new TrinoException(GENERIC_INTERNAL_ERROR,
-                    format("Unity Catalog conflict for %s: %s", path, errorMessage));
+                    format("Unity Catalog resource not found: %s", resource));
+            case 409 -> throw new TrinoException(ALREADY_EXISTS,
+                    format("Unity Catalog resource already exists: %s%s", resource, formatDetail(errorMessage)));
             case 429 -> throw new TrinoException(GENERIC_INTERNAL_ERROR,
-                    format("Unity Catalog rate limit exceeded for %s", path));
+                    format("Unity Catalog rate limit exceeded for %s", resource));
             default -> throw new TrinoException(GENERIC_INTERNAL_ERROR,
-                    format("Unity Catalog error (HTTP %d) for %s: %s", statusCode, path, errorMessage));
+                    format("Unity Catalog error (HTTP %d) for %s%s", statusCode, resource, formatDetail(errorMessage)));
         }
+    }
+
+    private static String extractResourceName(String path)
+    {
+        // Extract the meaningful resource from the API path, e.g.
+        // "/api/2.1/unity-catalog/tables/prod.adm.my_table" → "table prod.adm.my_table"
+        // "/api/2.1/unity-catalog/schemas/prod.adm" → "schema prod.adm"
+        if (path == null) {
+            return "unknown resource";
+        }
+        int tablesIndex = path.lastIndexOf("/tables/");
+        if (tablesIndex >= 0) {
+            return "table " + path.substring(tablesIndex + "/tables/".length());
+        }
+        int schemasIndex = path.lastIndexOf("/schemas/");
+        if (schemasIndex >= 0) {
+            return "schema " + path.substring(schemasIndex + "/schemas/".length());
+        }
+        int catalogsIndex = path.lastIndexOf("/catalogs/");
+        if (catalogsIndex >= 0) {
+            return "catalog " + path.substring(catalogsIndex + "/catalogs/".length());
+        }
+        // For other paths (e.g. credential vending), show the last path segment
+        int lastSlash = path.lastIndexOf('/');
+        if (lastSlash >= 0 && lastSlash < path.length() - 1) {
+            return path.substring(lastSlash + 1);
+        }
+        return path;
+    }
+
+    private static String formatDetail(String errorMessage)
+    {
+        if (errorMessage.isEmpty()) {
+            return "";
+        }
+        return ": " + errorMessage;
     }
 
     private String extractSafeErrorMessage(FullJsonResponseHandler.JsonResponse<JsonNode> response)
     {
         if (!response.hasValue()) {
-            return "no response body";
+            return "";
         }
         JsonNode body = response.getValue();
         // UC error responses typically have a "message" field
@@ -279,7 +401,7 @@ public class UnityCatalogClient
             // Redact any token-like strings in the error message (UC-SEC-004)
             return redactTokens(message);
         }
-        return "status %d".formatted(response.getStatusCode());
+        return "";
     }
 
     private static String redactTokens(String message)
@@ -305,7 +427,7 @@ public class UnityCatalogClient
         }
         catch (JsonProcessingException e) {
             throw new TrinoException(GENERIC_INTERNAL_ERROR,
-                    "Failed to deserialize Unity Catalog response as %s".formatted(type.getSimpleName()), e);
+                    format("Failed to deserialize Unity Catalog response as %s", type.getSimpleName()), e);
         }
     }
 
@@ -316,9 +438,9 @@ public class UnityCatalogClient
 
     private static TrinoException sanitizedException(String message, Throwable cause)
     {
-        // Log only the exception class and sanitized message — never the full cause chain,
-        // which may contain Authorization headers or token values (UC-SEC-004)
-        log.debug("Unity Catalog REST call failed (%s): %s", cause.getClass().getSimpleName(), message);
-        return new TrinoException(GENERIC_INTERNAL_ERROR, message);
+        // Preserve the cause for stack trace diagnostics, but sanitize the message
+        // to avoid leaking Authorization headers or token values (UC-SEC-004)
+        log.debug(cause, "Unity Catalog REST call failed: %s", message);
+        return new TrinoException(GENERIC_INTERNAL_ERROR, message, cause);
     }
 }

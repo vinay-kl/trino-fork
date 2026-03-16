@@ -504,6 +504,35 @@ final class TestUnityCatalogDeltaLakeMetastore
                 .hasMessageContaining("config is null");
     }
 
+    // --- managed table detection ---
+
+    @Test
+    void testGetTableManagedTableType()
+    {
+        TestingUnityCatalogClient client = new TestingUnityCatalogClient();
+        client.addTable(new UnityCatalogTable(
+                "managed_table", CATALOG, "schema", "MANAGED", "DELTA",
+                "s3://bucket/managed", "managed-id", null, null, null, null));
+        UnityCatalogDeltaLakeMetastore metastore = createMetastore(client);
+
+        Optional<DeltaMetastoreTable> table = metastore.getTable("schema", "managed_table");
+        assertThat(table).isPresent();
+        assertThat(table.get().managed()).isTrue();
+        assertThat(table.get().catalogOwned()).isTrue();
+    }
+
+    @Test
+    void testGetTableExternalTableType()
+    {
+        TestingUnityCatalogClient client = new TestingUnityCatalogClient();
+        client.addTable(deltaTable("schema", "external_table", "s3://bucket/external"));
+        UnityCatalogDeltaLakeMetastore metastore = createMetastore(client);
+
+        Optional<DeltaMetastoreTable> table = metastore.getTable("schema", "external_table");
+        assertThat(table).isPresent();
+        assertThat(table.get().managed()).isFalse();
+    }
+
     // --- Helpers ---
 
     private static UnityCatalogDeltaLakeMetastore createMetastore(TestingUnityCatalogClient client)

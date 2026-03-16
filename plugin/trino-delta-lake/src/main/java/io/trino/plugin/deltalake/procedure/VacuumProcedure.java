@@ -208,7 +208,7 @@ public class VacuumProcedure
             TableSnapshot tableSnapshot = metadata.getSnapshot(session, handle, Optional.of(handle.getReadVersion()));
             String tableLocation = tableSnapshot.getTableLocation();
             String transactionLogDir = getTransactionLogDir(tableLocation);
-            TrinoFileSystem fileSystem = fileSystemFactory.create(session, handle);
+            TrinoFileSystem fileSystem = fileSystemFactory.create(session, handle.toWriteCredentialsHandle());
             String commonPathPrefix = tableLocation.endsWith("/") ? tableLocation : tableLocation + "/";
             String queryId = session.getQueryId();
 

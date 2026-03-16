@@ -14,6 +14,7 @@
 package io.trino.plugin.deltalake.procedure;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import io.airlift.units.DataSize;
@@ -29,6 +30,7 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class DeltaTableOptimizeHandle
         extends DeltaTableProcedureHandle
 {
@@ -62,7 +64,8 @@ public class DeltaTableOptimizeHandle
         this.currentVersion = requireNonNull(currentVersion, "currentVersion is null");
         this.retriesEnabled = retriesEnabled;
         this.enforcedPartitionConstraint = requireNonNull(enforcedPartitionConstraint, "enforcedPartitionConstraint is null");
-        this.credentialsHandle = requireNonNull(credentialsHandle, "credentialsHandle is null");
+        // Backward compat: old serialized handles from rolling restart won't have credentialsHandle
+        this.credentialsHandle = credentialsHandle != null ? credentialsHandle : VendedCredentialsHandle.empty("");
     }
 
     public DeltaTableOptimizeHandle withCurrentVersion(long currentVersion)

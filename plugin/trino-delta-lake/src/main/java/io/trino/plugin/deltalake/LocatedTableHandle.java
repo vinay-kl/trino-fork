@@ -27,4 +27,9 @@ public interface LocatedTableHandle
     String location();
 
     VendedCredentialsHandle toCredentialsHandle();
+
+    default VendedCredentialsHandle toWriteCredentialsHandle()
+    {
+        return toCredentialsHandle().withOperationType(VendedCredentialsHandle.READ_WRITE);
+    }
 }

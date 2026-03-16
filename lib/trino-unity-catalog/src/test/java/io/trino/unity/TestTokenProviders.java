@@ -131,4 +131,72 @@ final class TestTokenProviders
                 .build();
         assertThat(provider.token(identity)).isEqualTo("alice-oauth");
     }
+
+    @Test
+    void testExtraCredentialsWithIdentityValidationMatchingJwt()
+    {
+        // JWT with email=alice in payload
+        String jwt = createJwt("{\"email\":\"alice\"}");
+        ExtraCredentialsTokenProvider provider = new ExtraCredentialsTokenProvider("uc.token", Optional.empty(), true, "email");
+        ConnectorIdentity identity = ConnectorIdentity.forUser("alice")
+                .withExtraCredentials(ImmutableMap.of("uc.token", jwt))
+                .build();
+        assertThat(provider.token(identity)).isEqualTo(jwt);
+    }
+
+    @Test
+    void testExtraCredentialsWithIdentityValidationMismatchedJwt()
+    {
+        String jwt = createJwt("{\"email\":\"bob\"}");
+        ExtraCredentialsTokenProvider provider = new ExtraCredentialsTokenProvider("uc.token", Optional.empty(), true, "email");
+        ConnectorIdentity identity = ConnectorIdentity.forUser("alice")
+                .withExtraCredentials(ImmutableMap.of("uc.token", jwt))
+                .build();
+        assertThatThrownBy(() -> provider.token(identity))
+                .isInstanceOf(TrinoException.class)
+                .hasMessageContaining("does not match");
+    }
+
+    @Test
+    void testExtraCredentialsWithIdentityValidationNonJwtSkips()
+    {
+        // Databricks PAT — not a JWT, should skip validation
+        ExtraCredentialsTokenProvider provider = new ExtraCredentialsTokenProvider("uc.token", Optional.empty(), true, "email");
+        ConnectorIdentity identity = ConnectorIdentity.forUser("alice")
+                .withExtraCredentials(ImmutableMap.of("uc.token", "dapi1234567890abcdef"))
+                .build();
+        assertThat(provider.token(identity)).isEqualTo("dapi1234567890abcdef");
+    }
+
+    @Test
+    void testOAuth2WithIdentityValidationMatchingJwt()
+    {
+        String jwt = createJwt("{\"email\":\"alice\"}");
+        OAuth2TokenProvider provider = new OAuth2TokenProvider(Optional.empty(), true, "email");
+        ConnectorIdentity identity = ConnectorIdentity.forUser("alice")
+                .withExtraCredentials(ImmutableMap.of("internal$oauth2.access-token", jwt))
+                .build();
+        assertThat(provider.token(identity)).isEqualTo(jwt);
+    }
+
+    @Test
+    void testOAuth2WithIdentityValidationMismatchedJwt()
+    {
+        String jwt = createJwt("{\"email\":\"bob\"}");
+        OAuth2TokenProvider provider = new OAuth2TokenProvider(Optional.empty(), true, "email");
+        ConnectorIdentity identity = ConnectorIdentity.forUser("alice")
+                .withExtraCredentials(ImmutableMap.of("internal$oauth2.access-token", jwt))
+                .build();
+        assertThatThrownBy(() -> provider.token(identity))
+                .isInstanceOf(TrinoException.class)
+                .hasMessageContaining("does not match");
+    }
+
+    private static String createJwt(String payloadJson)
+    {
+        java.util.Base64.Encoder encoder = java.util.Base64.getUrlEncoder().withoutPadding();
+        String header = encoder.encodeToString("{\"alg\":\"none\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String payload = encoder.encodeToString(payloadJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return header + "." + payload + ".signature";
+    }
 }

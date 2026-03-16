@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.deltalake;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.google.common.collect.ImmutableList;
 import io.trino.plugin.deltalake.metastore.VendedCredentialsHandle;
 import io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.ColumnMappingMode;
@@ -28,6 +29,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.plugin.deltalake.DeltaLakeColumnType.PARTITION_KEY;
 import static java.util.Objects.requireNonNull;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record DeltaLakeOutputTableHandle(
         String schemaName,
         String tableName,
@@ -44,7 +46,8 @@ public record DeltaLakeOutputTableHandle(
         boolean replace,
         Optional<List<DeltaLakeColumnHandle>> existingColumns,
         OptionalLong readVersion,
-        ProtocolEntry protocolEntry)
+        ProtocolEntry protocolEntry,
+        VendedCredentialsHandle credentialsHandle)
         implements ConnectorOutputTableHandle
 {
     public DeltaLakeOutputTableHandle
@@ -62,6 +65,10 @@ public record DeltaLakeOutputTableHandle(
         requireNonNull(existingColumns, "existingColumns is null");
         requireNonNull(readVersion, "readVersion is null");
         requireNonNull(protocolEntry, "protocolEntry is null");
+        // Backward compat: old serialized handles from rolling restart won't have credentialsHandle
+        if (credentialsHandle == null) {
+            credentialsHandle = VendedCredentialsHandle.empty(location);
+        }
     }
 
     public List<String> partitionedBy()
@@ -74,6 +81,11 @@ public record DeltaLakeOutputTableHandle(
 
     public VendedCredentialsHandle toCredentialsHandle()
     {
-        return VendedCredentialsHandle.empty(location);
+        return credentialsHandle;
+    }
+
+    public VendedCredentialsHandle toWriteCredentialsHandle()
+    {
+        return credentialsHandle.withOperationType(VendedCredentialsHandle.READ_WRITE);
     }
 }

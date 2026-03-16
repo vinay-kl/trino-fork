@@ -240,6 +240,7 @@ public class TestDeltaLakeSplitManager
                 checkpointWriterManager,
                 new CachingExtendedStatisticsAccess(new MetaDirStatisticsAccess(new DefaultDeltaLakeFileSystemFactory(HDFS_FILE_SYSTEM_FACTORY, new NoOpVendedCredentialsProvider()), new JsonCodecFactory().jsonCodec(ExtendedStatistics.class))),
                 true,
+                new NoOpVendedCredentialsProvider(),
                 new DeltaLakeTableMetadataScheduler(CURRENT_NODE, TESTING_TYPE_MANAGER, new DeltaLakeFileMetastoreTableOperationsProvider(hiveMetastoreFactory), Integer.MAX_VALUE, metadataDeltaLakeConfig),
                 newDirectExecutorService(),
                 transactionLogReaderFactory);

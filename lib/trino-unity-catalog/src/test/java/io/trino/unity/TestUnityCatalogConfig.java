@@ -37,7 +37,9 @@ final class TestUnityCatalogConfig
                 .setExtraCredentialName("unity-catalog.token")
                 .setFallbackToStaticToken(false)
                 .setCredentialVendingEnabled(false)
-                .setAllowHttpEndpoint(false));
+                .setAllowHttpEndpoint(false)
+                .setValidateTokenIdentity(true)
+                .setTokenIdentityClaim("email"));
     }
 
     @Test
@@ -46,23 +48,27 @@ final class TestUnityCatalogConfig
         Map<String, String> properties = ImmutableMap.<String, String>builder()
                 .put("unity-catalog.server-uri", "https://my-workspace.cloud.databricks.com/api/2.1/unity-catalog")
                 .put("unity-catalog.catalog-name", "main")
-                .put("unity-catalog.auth-type", "EXTRA_CREDENTIALS")
+                .put("unity-catalog.auth-type", "OAUTH2")
                 .put("unity-catalog.static-token", "dapi1234567890")
                 .put("unity-catalog.extra-credential-name", "uc.token")
                 .put("unity-catalog.fallback-to-static-token", "true")
                 .put("unity-catalog.credential-vending-enabled", "true")
                 .put("unity-catalog.allow-http-endpoint", "true")
+                .put("unity-catalog.validate-token-identity", "false")
+                .put("unity-catalog.token-identity-claim", "sub")
                 .buildOrThrow();
 
         UnityCatalogConfig expected = new UnityCatalogConfig()
                 .setServerUri(URI.create("https://my-workspace.cloud.databricks.com/api/2.1/unity-catalog"))
                 .setCatalogName("main")
-                .setAuthType(UnityCatalogConfig.AuthType.EXTRA_CREDENTIALS)
+                .setAuthType(UnityCatalogConfig.AuthType.OAUTH2)
                 .setStaticToken("dapi1234567890")
                 .setExtraCredentialName("uc.token")
                 .setFallbackToStaticToken(true)
                 .setCredentialVendingEnabled(true)
-                .setAllowHttpEndpoint(true);
+                .setAllowHttpEndpoint(true)
+                .setValidateTokenIdentity(false)
+                .setTokenIdentityClaim("sub");
 
         assertFullMapping(properties, expected);
     }
@@ -155,5 +161,76 @@ final class TestUnityCatalogConfig
                 .setFallbackToStaticToken(false)
                 .setStaticToken(null);
         assertThat(config.isFallbackRequiresStaticToken()).isTrue();
+    }
+
+    // --- SSRF protection: loopback/link-local ---
+
+    @Test
+    void testLoopbackAddressRejected()
+    {
+        UnityCatalogConfig config = new UnityCatalogConfig()
+                .setServerUri(URI.create("https://127.0.0.1:8080"));
+        assertThat(config.isEndpointNotLoopbackOrLinkLocal()).isFalse();
+    }
+
+    @Test
+    void testLinkLocalAddressRejected()
+    {
+        UnityCatalogConfig config = new UnityCatalogConfig()
+                .setServerUri(URI.create("https://169.254.169.254"));
+        assertThat(config.isEndpointNotLoopbackOrLinkLocal()).isFalse();
+    }
+
+    @Test
+    void testPublicAddressAllowed()
+    {
+        UnityCatalogConfig config = new UnityCatalogConfig()
+                .setServerUri(URI.create("https://accounts.cloud.databricks.com"));
+        assertThat(config.isEndpointNotLoopbackOrLinkLocal()).isTrue();
+    }
+
+    @Test
+    void testNullServerUriPassesLoopbackCheck()
+    {
+        UnityCatalogConfig config = new UnityCatalogConfig();
+        assertThat(config.isEndpointNotLoopbackOrLinkLocal()).isTrue();
+    }
+
+    @Test
+    void testLoopbackRejectedEvenWithAllowHttpEndpoint()
+    {
+        // allow-http-endpoint waives TLS, but SSRF protection still applies
+        UnityCatalogConfig config = new UnityCatalogConfig()
+                .setServerUri(URI.create("http://127.0.0.1:8080"))
+                .setAllowHttpEndpoint(true);
+        assertThat(config.isEndpointNotLoopbackOrLinkLocal()).isFalse();
+    }
+
+    @Test
+    void testExtraCredentialsWithFallbackNotAllowed()
+    {
+        UnityCatalogConfig config = new UnityCatalogConfig()
+                .setAuthType(UnityCatalogConfig.AuthType.EXTRA_CREDENTIALS)
+                .setFallbackToStaticToken(true)
+                .setStaticToken("my-token");
+        assertThat(config.isExtraCredentialsFallbackNotAllowed()).isFalse();
+    }
+
+    @Test
+    void testExtraCredentialsWithoutFallbackAllowed()
+    {
+        UnityCatalogConfig config = new UnityCatalogConfig()
+                .setAuthType(UnityCatalogConfig.AuthType.EXTRA_CREDENTIALS);
+        assertThat(config.isExtraCredentialsFallbackNotAllowed()).isTrue();
+    }
+
+    @Test
+    void testOAuth2WithFallbackAllowed()
+    {
+        UnityCatalogConfig config = new UnityCatalogConfig()
+                .setAuthType(UnityCatalogConfig.AuthType.OAUTH2)
+                .setFallbackToStaticToken(true)
+                .setStaticToken("my-token");
+        assertThat(config.isExtraCredentialsFallbackNotAllowed()).isTrue();
     }
 }

@@ -42,9 +42,13 @@ public class UnityCatalogModule
             case STATIC -> new StaticTokenProvider(config.getStaticToken());
             case EXTRA_CREDENTIALS -> new ExtraCredentialsTokenProvider(
                     config.getExtraCredentialName(),
-                    config.isFallbackToStaticToken() ? Optional.ofNullable(config.getStaticToken()) : Optional.empty());
+                    config.isFallbackToStaticToken() ? Optional.ofNullable(config.getStaticToken()) : Optional.empty(),
+                    config.isValidateTokenIdentity(),
+                    config.getTokenIdentityClaim());
             case OAUTH2 -> new OAuth2TokenProvider(
-                    config.isFallbackToStaticToken() ? Optional.ofNullable(config.getStaticToken()) : Optional.empty());
+                    config.isFallbackToStaticToken() ? Optional.ofNullable(config.getStaticToken()) : Optional.empty(),
+                    config.isValidateTokenIdentity(),
+                    config.getTokenIdentityClaim());
         };
     }
 

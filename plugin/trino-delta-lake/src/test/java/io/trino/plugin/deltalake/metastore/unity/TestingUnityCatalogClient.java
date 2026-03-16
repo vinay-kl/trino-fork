@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.trino.spi.StandardErrorCode.NOT_FOUND;
@@ -34,7 +35,7 @@ import static io.trino.spi.StandardErrorCode.NOT_FOUND;
  * In-memory implementation of Unity Catalog for testing.
  * Stores schemas and tables in local maps, keyed by catalog.schema and catalog.schema.table.
  */
-final class TestingUnityCatalogClient
+public final class TestingUnityCatalogClient
         extends UnityCatalogClient
 {
     private final Map<String, UnityCatalogSchema> schemas = new ConcurrentHashMap<>();
@@ -43,7 +44,7 @@ final class TestingUnityCatalogClient
     private final AtomicInteger credentialVendingCallCount = new AtomicInteger();
     private volatile String lastReceivedToken;
 
-    TestingUnityCatalogClient()
+    public TestingUnityCatalogClient()
     {
         super(new TestingHttpClient(request -> {
             throw new UnsupportedOperationException("TestingUnityCatalogClient should not make HTTP calls");
@@ -166,6 +167,68 @@ final class TestingUnityCatalogClient
         }
     }
 
+    private final Map<String, List<String>> operationsByTableId = new ConcurrentHashMap<>();
+    private final Map<String, List<String>> effectivePermissions = new ConcurrentHashMap<>();
+    private final AtomicInteger effectivePermissionsCallCount = new AtomicInteger();
+    private volatile String lastReceivedOperation;
+
+    public void setEffectivePermissions(String securableType, String fullName, List<String> privileges)
+    {
+        effectivePermissions.put(securableType + ":" + fullName, privileges);
+    }
+
+    String lastReceivedOperation()
+    {
+        return lastReceivedOperation;
+    }
+
+    public int effectivePermissionsCallCount()
+    {
+        return effectivePermissionsCallCount.get();
+    }
+
+    @Override
+    public List<String> getEffectivePermissions(String token, String securableType, String fullName)
+    {
+        this.lastReceivedToken = token;
+        effectivePermissionsCallCount.incrementAndGet();
+        String key = securableType + ":" + fullName;
+        List<String> perms = effectivePermissions.get(key);
+        return perms != null ? perms : ImmutableList.of();
+    }
+
+    @Override
+    public TemporaryCredentials generateTemporaryTableCredentials(String token, String tableId, String operation)
+    {
+        this.lastReceivedOperation = operation;
+        operationsByTableId.computeIfAbsent(tableId, ignored -> new CopyOnWriteArrayList<>()).add(operation);
+        if (temporaryCredentials == null) {
+            throw new UnsupportedOperationException("Credential vending not configured in testing client");
+        }
+        credentialVendingCallCount.incrementAndGet();
+        return temporaryCredentials;
+    }
+
+    private final CopyOnWriteArrayList<PathCredentialRequest> pathCredentialRequests = new CopyOnWriteArrayList<>();
+
+    @Override
+    public TemporaryCredentials generateTemporaryPathCredentials(String token, String url, String operation)
+    {
+        pathCredentialRequests.add(new PathCredentialRequest(url, operation));
+        if (temporaryCredentials == null) {
+            throw new UnsupportedOperationException("Credential vending not configured in testing client");
+        }
+        credentialVendingCallCount.incrementAndGet();
+        return temporaryCredentials;
+    }
+
+    List<PathCredentialRequest> pathCredentialRequests()
+    {
+        return ImmutableList.copyOf(pathCredentialRequests);
+    }
+
+    record PathCredentialRequest(String url, String operation) {}
+
     void setTemporaryCredentials(TemporaryCredentials temporaryCredentials)
     {
         this.temporaryCredentials = temporaryCredentials;
@@ -181,13 +244,9 @@ final class TestingUnityCatalogClient
         return lastReceivedToken;
     }
 
-    @Override
-    public TemporaryCredentials generateTemporaryTableCredentials(String token, String tableId, String operation)
+    List<String> operationsForTable(String tableId)
     {
-        if (temporaryCredentials == null) {
-            throw new UnsupportedOperationException("Credential vending not configured in testing client");
-        }
-        credentialVendingCallCount.incrementAndGet();
-        return temporaryCredentials;
+        List<String> ops = operationsByTableId.get(tableId);
+        return ops != null ? ops : ImmutableList.of();
     }
 }

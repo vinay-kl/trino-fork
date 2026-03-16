@@ -45,4 +45,9 @@ public interface DeltaLakeMetastore
     void dropTable(SchemaTableName schemaTableName, String tableLocation, boolean deleteData);
 
     void renameTable(SchemaTableName from, SchemaTableName to);
+
+    default boolean isCredentialVendingEnabled()
+    {
+        return false;
+    }
 }

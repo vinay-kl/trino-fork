@@ -19,6 +19,7 @@ import io.airlift.json.JsonCodec;
 import io.trino.plugin.deltalake.metastore.DeltaLakeMetastoreFactory;
 import io.trino.plugin.deltalake.metastore.DeltaLakeMetastoreFactory.DeltaLakeMetastores;
 import io.trino.plugin.deltalake.metastore.DeltaLakeTableMetadataScheduler;
+import io.trino.plugin.deltalake.metastore.VendedCredentialsProvider;
 import io.trino.plugin.deltalake.statistics.CachingExtendedStatisticsAccess;
 import io.trino.plugin.deltalake.statistics.FileBasedTableStatisticsProvider;
 import io.trino.plugin.deltalake.transactionlog.TransactionLogAccess;
@@ -55,6 +56,7 @@ public class DeltaLakeMetadataFactory
     private final DeltaLakeTableMetadataScheduler metadataScheduler;
     private final Executor metadataFetchingExecutor;
     private final boolean allowManagedTableRename;
+    private final VendedCredentialsProvider vendedCredentialsProvider;
     private final TransactionLogReaderFactory transactionLogReaderFactory;
 
     @Inject
@@ -71,6 +73,7 @@ public class DeltaLakeMetadataFactory
             CheckpointWriterManager checkpointWriterManager,
             CachingExtendedStatisticsAccess statisticsAccess,
             @AllowDeltaLakeManagedTableRename boolean allowManagedTableRename,
+            VendedCredentialsProvider vendedCredentialsProvider,
             DeltaLakeTableMetadataScheduler metadataScheduler,
             @ForDeltaLakeMetadata ExecutorService executorService,
             TransactionLogReaderFactory transactionLogReaderFactory)
@@ -91,6 +94,7 @@ public class DeltaLakeMetadataFactory
         this.deleteSchemaLocationsFallback = deltaLakeConfig.isDeleteSchemaLocationsFallback();
         this.useUniqueTableLocation = deltaLakeConfig.isUniqueTableLocation();
         this.allowManagedTableRename = allowManagedTableRename;
+        this.vendedCredentialsProvider = requireNonNull(vendedCredentialsProvider, "vendedCredentialsProvider is null");
         this.metadataScheduler = requireNonNull(metadataScheduler, "metadataScheduler is null");
         if (deltaLakeConfig.getMetadataParallelism() == 1) {
             this.metadataFetchingExecutor = directExecutor();
@@ -128,6 +132,7 @@ public class DeltaLakeMetadataFactory
                 metadataScheduler,
                 useUniqueTableLocation,
                 allowManagedTableRename,
+                vendedCredentialsProvider,
                 metadataFetchingExecutor,
                 transactionLogReaderFactory);
     }

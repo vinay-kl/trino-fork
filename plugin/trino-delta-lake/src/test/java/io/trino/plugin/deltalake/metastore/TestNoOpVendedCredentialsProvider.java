@@ -42,7 +42,7 @@ final class TestNoOpVendedCredentialsProvider
     {
         NoOpVendedCredentialsProvider provider = new NoOpVendedCredentialsProvider();
         VendedCredentialsHandle handle = new VendedCredentialsHandle(
-                true, false, "s3://bucket/table", Optional.of("table-id"), Optional.empty());
+                true, false, "s3://bucket/table", Optional.of("table-id"), VendedCredentialsHandle.READ, Optional.empty());
         ConnectorSession session = TestingConnectorSession.builder()
                 .setIdentity(ConnectorIdentity.ofUser("alice"))
                 .build();
