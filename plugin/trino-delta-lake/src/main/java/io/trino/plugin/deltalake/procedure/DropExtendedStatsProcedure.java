@@ -15,7 +15,9 @@ package io.trino.plugin.deltalake.procedure;
 
 import com.google.inject.Inject;
 import com.google.inject.Provider;
+import io.trino.filesystem.TrinoFileSystem;
 import io.trino.plugin.base.util.UncheckedCloseable;
+import io.trino.plugin.deltalake.DeltaLakeFileSystemFactory;
 import io.trino.plugin.deltalake.DeltaLakeMetadata;
 import io.trino.plugin.deltalake.DeltaLakeMetadataFactory;
 import io.trino.plugin.deltalake.LocatedTableHandle;
@@ -53,12 +55,14 @@ public class DropExtendedStatsProcedure
     }
 
     private final DeltaLakeMetadataFactory metadataFactory;
+    private final DeltaLakeFileSystemFactory fileSystemFactory;
     private final ExtendedStatisticsAccess statsAccess;
 
     @Inject
-    public DropExtendedStatsProcedure(DeltaLakeMetadataFactory metadataFactory, ExtendedStatisticsAccess statsAccess)
+    public DropExtendedStatsProcedure(DeltaLakeMetadataFactory metadataFactory, DeltaLakeFileSystemFactory fileSystemFactory, ExtendedStatisticsAccess statsAccess)
     {
         this.metadataFactory = requireNonNull(metadataFactory, "metadataFactory");
+        this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.statsAccess = requireNonNull(statsAccess, "statsAccess");
     }
 
@@ -88,7 +92,8 @@ public class DropExtendedStatsProcedure
                 throw new TrinoException(INVALID_PROCEDURE_ARGUMENT, format("Table '%s' does not exist", name));
             }
             accessControl.checkCanInsertIntoTable(null, name);
-            statsAccess.deleteExtendedStatistics(session, name, tableHandle.location());
+            TrinoFileSystem fileSystem = fileSystemFactory.create(session, tableHandle.location());
+            statsAccess.deleteExtendedStatistics(fileSystem, session, name, tableHandle.location());
         }
     }
 }

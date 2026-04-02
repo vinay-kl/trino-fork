@@ -17,9 +17,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
 import io.airlift.json.JsonCodec;
 import io.trino.filesystem.Location;
-import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.parquet.ParquetReaderOptions;
 import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
+import io.trino.plugin.deltalake.metastore.VendedCredentialsHandle;
 import io.trino.plugin.deltalake.procedure.DeltaLakeTableExecuteHandle;
 import io.trino.plugin.deltalake.procedure.DeltaTableOptimizeHandle;
 import io.trino.plugin.deltalake.transactionlog.MetadataEntry;
@@ -63,7 +63,7 @@ public class DeltaLakePageSinkProvider
         implements ConnectorPageSinkProvider
 {
     private final PageIndexerFactory pageIndexerFactory;
-    private final TrinoFileSystemFactory fileSystemFactory;
+    private final DeltaLakeFileSystemFactory fileSystemFactory;
     private final JsonCodec<DataFileInfo> dataFileInfoCodec;
     private final JsonCodec<DeltaLakeMergeResult> mergeResultJsonCodec;
     private final DeltaLakeWriterStats stats;
@@ -78,7 +78,7 @@ public class DeltaLakePageSinkProvider
     @Inject
     public DeltaLakePageSinkProvider(
             PageIndexerFactory pageIndexerFactory,
-            TrinoFileSystemFactory fileSystemFactory,
+            DeltaLakeFileSystemFactory fileSystemFactory,
             JsonCodec<DataFileInfo> dataFileInfoCodec,
             JsonCodec<DeltaLakeMergeResult> mergeResultJsonCodec,
             DeltaLakeWriterStats stats,
@@ -120,6 +120,7 @@ public class DeltaLakePageSinkProvider
                 maxPartitionsPerWriter,
                 dataFileInfoCodec,
                 Location.of(tableHandle.location()),
+                tableHandle.toWriteCredentialsHandle(),
                 session,
                 stats,
                 trinoVersion,
@@ -141,6 +142,7 @@ public class DeltaLakePageSinkProvider
                 maxPartitionsPerWriter,
                 dataFileInfoCodec,
                 Location.of(tableHandle.location()),
+                tableHandle.credentialsHandle(),
                 session,
                 stats,
                 trinoVersion,
@@ -164,6 +166,7 @@ public class DeltaLakePageSinkProvider
                         maxPartitionsPerWriter,
                         dataFileInfoCodec,
                         Location.of(executeHandle.tableLocation()),
+                        optimizeHandle.getCredentialsHandle(),
                         session,
                         stats,
                         trinoVersion,
@@ -191,6 +194,7 @@ public class DeltaLakePageSinkProvider
                 mergeResultJsonCodec,
                 stats,
                 Location.of(tableHandle.location()),
+                tableHandle.credentialsHandle(),
                 pageSink,
                 tableHandle.inputColumns(),
                 domainCompactionThreshold,
@@ -246,6 +250,7 @@ public class DeltaLakePageSinkProvider
                 maxPartitionsPerWriter,
                 dataFileInfoCodec,
                 tableLocation,
+                mergeTableHandle.tableHandle().toWriteCredentialsHandle(),
                 tableLocation.appendPath(CHANGE_DATA_FOLDER_NAME),
                 session,
                 stats,

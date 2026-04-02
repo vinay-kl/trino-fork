@@ -21,6 +21,7 @@ import io.trino.filesystem.TrinoInputFile;
 import io.trino.filesystem.TrinoOutputFile;
 import io.trino.filesystem.hdfs.HdfsFileSystemFactory;
 import io.trino.filesystem.local.LocalInputFile;
+import io.trino.plugin.deltalake.metastore.NoOpVendedCredentialsProvider;
 import io.trino.filesystem.local.LocalOutputFile;
 import io.trino.metadata.TableHandle;
 import io.trino.parquet.writer.ParquetSchemaConverter;
@@ -139,6 +140,8 @@ public class TestDeltaLakeNodeLocalDynamicSplitPruning
                             "unpartitioned_table",
                             true,
                             "test_location",
+                            false,
+                            Optional.empty(),
                             metadataEntry,
                             new ProtocolEntry(1, 2, Optional.empty(), Optional.empty()),
                             TupleDomain.all(),
@@ -239,6 +242,8 @@ public class TestDeltaLakeNodeLocalDynamicSplitPruning
                             "unpartitioned_table",
                             true,
                             "test_location",
+                            false,
+                            Optional.empty(),
                             metadataEntry,
                             new ProtocolEntry(1, 2, Optional.empty(), Optional.empty()),
                             TupleDomain.all(),
@@ -326,7 +331,7 @@ public class TestDeltaLakeNodeLocalDynamicSplitPruning
     {
         FileFormatDataSourceStats stats = new FileFormatDataSourceStats();
         DeltaLakePageSourceProvider provider = new DeltaLakePageSourceProvider(
-                new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS),
+                new DefaultDeltaLakeFileSystemFactory(new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS), new NoOpVendedCredentialsProvider()),
                 stats,
                 PARQUET_READER_CONFIG,
                 deltaLakeConfig,

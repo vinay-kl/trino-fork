@@ -17,10 +17,13 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Resources;
 import io.airlift.json.JsonCodecFactory;
 import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
+import io.trino.plugin.deltalake.DefaultDeltaLakeFileSystemFactory;
 import io.trino.plugin.deltalake.DeltaLakeColumnHandle;
+import io.trino.plugin.deltalake.DeltaLakeFileSystemFactory;
 import io.trino.plugin.deltalake.DeltaLakeConfig;
 import io.trino.plugin.deltalake.DeltaLakeSessionProperties;
 import io.trino.plugin.deltalake.DeltaLakeTableHandle;
+import io.trino.plugin.deltalake.metastore.NoOpVendedCredentialsProvider;
 import io.trino.plugin.deltalake.transactionlog.MetadataEntry;
 import io.trino.plugin.deltalake.transactionlog.ProtocolEntry;
 import io.trino.plugin.deltalake.transactionlog.TableSnapshot;
@@ -86,14 +89,16 @@ public class TestDeltaLakeFileBasedTableStatisticsProvider
                 checkpointSchemaManager,
                 new DeltaLakeConfig(),
                 fileFormatDataSourceStats,
-                HDFS_FILE_SYSTEM_FACTORY,
+                new DefaultDeltaLakeFileSystemFactory(HDFS_FILE_SYSTEM_FACTORY, new NoOpVendedCredentialsProvider()),
                 new ParquetReaderConfig(),
                 newDirectExecutorService());
 
-        statistics = new CachingExtendedStatisticsAccess(new MetaDirStatisticsAccess(HDFS_FILE_SYSTEM_FACTORY, new JsonCodecFactory().jsonCodec(ExtendedStatistics.class)));
+        DeltaLakeFileSystemFactory deltaLakeFileSystemFactory = new DefaultDeltaLakeFileSystemFactory(HDFS_FILE_SYSTEM_FACTORY, new NoOpVendedCredentialsProvider());
+        statistics = new CachingExtendedStatisticsAccess(new MetaDirStatisticsAccess(new JsonCodecFactory().jsonCodec(ExtendedStatistics.class)));
         tableStatisticsProvider = new FileBasedTableStatisticsProvider(
                 typeManager,
                 transactionLogAccess,
+                deltaLakeFileSystemFactory,
                 statistics);
     }
 
@@ -119,6 +124,8 @@ public class TestDeltaLakeFileBasedTableStatisticsProvider
                 schemaTableName.getTableName(),
                 false,
                 tableLocation,
+                false,
+                Optional.empty(),
                 metadataEntry,
                 new ProtocolEntry(1, 2, Optional.empty(), Optional.empty()),
                 TupleDomain.all(),
@@ -251,6 +258,8 @@ public class TestDeltaLakeFileBasedTableStatisticsProvider
                 tableHandle.getTableName(),
                 tableHandle.isManaged(),
                 tableHandle.getLocation(),
+                false,
+                Optional.empty(),
                 tableHandle.getMetadataEntry(),
                 tableHandle.getProtocolEntry(),
                 TupleDomain.all(),
@@ -277,6 +286,8 @@ public class TestDeltaLakeFileBasedTableStatisticsProvider
                 tableHandle.getTableName(),
                 tableHandle.isManaged(),
                 tableHandle.getLocation(),
+                false,
+                Optional.empty(),
                 tableHandle.getMetadataEntry(),
                 tableHandle.getProtocolEntry(),
                 TupleDomain.none(),
@@ -293,6 +304,8 @@ public class TestDeltaLakeFileBasedTableStatisticsProvider
                 tableHandle.getTableName(),
                 tableHandle.isManaged(),
                 tableHandle.getLocation(),
+                false,
+                Optional.empty(),
                 tableHandle.getMetadataEntry(),
                 tableHandle.getProtocolEntry(),
                 TupleDomain.all(),
@@ -476,6 +489,6 @@ public class TestDeltaLakeFileBasedTableStatisticsProvider
     {
         SchemaTableName name = new SchemaTableName("some_ignored_schema", "some_ignored_name");
         String tableLocation = Resources.getResource(tableLocationResourceName).toExternalForm();
-        return statistics.readExtendedStatistics(SESSION, name, tableLocation);
+        return statistics.readExtendedStatistics(HDFS_FILE_SYSTEM_FACTORY.create(SESSION), SESSION, name, tableLocation);
     }
 }

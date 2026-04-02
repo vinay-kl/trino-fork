@@ -29,13 +29,14 @@ import io.trino.filesystem.FileEntry;
 import io.trino.filesystem.FileIterator;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
-import io.trino.filesystem.TrinoFileSystemFactory;
+import io.trino.plugin.deltalake.DeltaLakeFileSystemFactory;
 import io.trino.filesystem.TrinoInputFile;
 import io.trino.parquet.ParquetReaderOptions;
 import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
 import io.trino.plugin.deltalake.DeltaLakeColumnHandle;
 import io.trino.plugin.deltalake.DeltaLakeColumnMetadata;
 import io.trino.plugin.deltalake.DeltaLakeConfig;
+import io.trino.plugin.deltalake.DeltaLakeTableHandle;
 import io.trino.plugin.deltalake.ForDeltaLakeMetadata;
 import io.trino.plugin.deltalake.transactionlog.TableSnapshot.MetadataAndProtocolEntry;
 import io.trino.plugin.deltalake.transactionlog.checkpoint.CheckpointEntryIterator;
@@ -109,7 +110,7 @@ public class TransactionLogAccess
     private final TypeManager typeManager;
     private final CheckpointSchemaManager checkpointSchemaManager;
     private final FileFormatDataSourceStats fileFormatDataSourceStats;
-    private final TrinoFileSystemFactory fileSystemFactory;
+    private final DeltaLakeFileSystemFactory fileSystemFactory;
     private final ParquetReaderOptions parquetReaderOptions;
     private final ExecutorService executorService;
     private final boolean checkpointRowStatisticsWritingEnabled;
@@ -126,7 +127,7 @@ public class TransactionLogAccess
             CheckpointSchemaManager checkpointSchemaManager,
             DeltaLakeConfig deltaLakeConfig,
             FileFormatDataSourceStats fileFormatDataSourceStats,
-            TrinoFileSystemFactory fileSystemFactory,
+            DeltaLakeFileSystemFactory fileSystemFactory,
             ParquetReaderConfig parquetReaderConfig,
             @ForDeltaLakeMetadata ExecutorService executorService)
     {
@@ -174,7 +175,16 @@ public class TransactionLogAccess
     public TableSnapshot loadSnapshot(ConnectorSession session, SchemaTableName table, String tableLocation, Optional<Long> endVersion)
             throws IOException
     {
-        TrinoFileSystem fileSystem = fileSystemFactory.create(session);
+        return loadSnapshot(session, fileSystemFactory.create(session), table, tableLocation, endVersion);
+    }
+
+    /**
+     * Load a snapshot using a pre-created file system. Use this overload when the caller has a
+     * credential-aware file system (e.g., from DeltaLakeFileSystemFactory with vended credentials).
+     */
+    public TableSnapshot loadSnapshot(ConnectorSession session, TrinoFileSystem fileSystem, SchemaTableName table, String tableLocation, Optional<Long> endVersion)
+            throws IOException
+    {
         if (endVersion.isPresent()) {
             return loadSnapshotForTimeTravel(fileSystem, table, tableLocation, endVersion.get());
         }
@@ -310,8 +320,12 @@ public class TransactionLogAccess
 
     public MetadataEntry getMetadataEntry(ConnectorSession session, TableSnapshot tableSnapshot)
     {
+        return getMetadataEntry(session, tableSnapshot, fileSystemFactory.create(session));
+    }
+
+    public MetadataEntry getMetadataEntry(ConnectorSession session, TableSnapshot tableSnapshot, TrinoFileSystem fileSystem)
+    {
         if (tableSnapshot.getCachedMetadata().isEmpty()) {
-            TrinoFileSystem fileSystem = fileSystemFactory.create(session);
             Optional<MetadataEntry> latestMetadataEntry = tableSnapshot.getTransactions().reversed().stream()
                     .map(transaction -> transaction.transactionEntries().getMetadataAndProtocol(fileSystem))
                     .map(MetadataAndProtocolEntries::metadata)
@@ -340,6 +354,35 @@ public class TransactionLogAccess
 
     public Stream<AddFileEntry> getActiveFiles(
             ConnectorSession session,
+            DeltaLakeTableHandle tableHandle,
+            TableSnapshot tableSnapshot,
+            MetadataEntry metadataEntry,
+            ProtocolEntry protocolEntry,
+            TupleDomain<DeltaLakeColumnHandle> partitionConstraint,
+            Set<DeltaLakeColumnHandle> projectedColumns)
+    {
+        Set<String> baseColumnNames = projectedColumns.stream()
+                .filter(DeltaLakeColumnHandle::isBaseColumn) // Only base column stats are supported
+                .map(DeltaLakeColumnHandle::columnName)
+                .collect(toImmutableSet());
+        return getActiveFiles(session, tableHandle, tableSnapshot, metadataEntry, protocolEntry, partitionConstraint, baseColumnNames::contains);
+    }
+
+    public Stream<AddFileEntry> getActiveFiles(
+            ConnectorSession session,
+            DeltaLakeTableHandle tableHandle,
+            TableSnapshot tableSnapshot,
+            MetadataEntry metadataEntry,
+            ProtocolEntry protocolEntry,
+            TupleDomain<DeltaLakeColumnHandle> partitionConstraint,
+            Predicate<String> addStatsMinMaxColumnFilter)
+    {
+        TrinoFileSystem fileSystem = fileSystemFactory.create(session, tableHandle);
+        return getActiveFiles(session, fileSystem, tableSnapshot, metadataEntry, protocolEntry, partitionConstraint, addStatsMinMaxColumnFilter);
+    }
+
+    public Stream<AddFileEntry> getActiveFiles(
+            ConnectorSession session,
             TableSnapshot tableSnapshot,
             MetadataEntry metadataEntry,
             ProtocolEntry protocolEntry,
@@ -361,9 +404,22 @@ public class TransactionLogAccess
             TupleDomain<DeltaLakeColumnHandle> partitionConstraint,
             Predicate<String> addStatsMinMaxColumnFilter)
     {
+        TrinoFileSystem fileSystem = fileSystemFactory.create(session);
+        return getActiveFiles(session, fileSystem, tableSnapshot, metadataEntry, protocolEntry, partitionConstraint, addStatsMinMaxColumnFilter);
+    }
+
+    private Stream<AddFileEntry> getActiveFiles(
+            ConnectorSession session,
+            TrinoFileSystem fileSystem,
+            TableSnapshot tableSnapshot,
+            MetadataEntry metadataEntry,
+            ProtocolEntry protocolEntry,
+            TupleDomain<DeltaLakeColumnHandle> partitionConstraint,
+            Predicate<String> addStatsMinMaxColumnFilter)
+    {
         try {
             if (isCheckpointFilteringEnabled(session)) {
-                return loadActiveFiles(session, tableSnapshot, metadataEntry, protocolEntry, partitionConstraint, addStatsMinMaxColumnFilter);
+                return loadActiveFiles(session, fileSystem, tableSnapshot, metadataEntry, protocolEntry, partitionConstraint, addStatsMinMaxColumnFilter);
             }
 
             TableVersion tableVersion = new TableVersion(new TableLocation(tableSnapshot.getTable(), tableSnapshot.getTableLocation()), tableSnapshot.getVersion());
@@ -384,7 +440,7 @@ public class TransactionLogAccess
                                 oldCached.getVersion(),
                                 tableSnapshot.getVersion(),
                                 tableSnapshot,
-                                fileSystemFactory.create(session));
+                                fileSystem);
                         return oldCached.withUpdatesApplied(newEntries, tableSnapshot.getVersion());
                     }
                     catch (MissingTransactionLogException e) {
@@ -394,7 +450,7 @@ public class TransactionLogAccess
                 }
 
                 List<AddFileEntry> activeFiles;
-                try (Stream<AddFileEntry> addFileEntryStream = loadActiveFiles(session, tableSnapshot, metadataEntry, protocolEntry, TupleDomain.all(), alwaysTrue())) {
+                try (Stream<AddFileEntry> addFileEntryStream = loadActiveFiles(session, fileSystem, tableSnapshot, metadataEntry, protocolEntry, TupleDomain.all(), alwaysTrue())) {
                     activeFiles = addFileEntryStream.collect(toImmutableList());
                 }
                 return new DeltaLakeDataFileCacheEntry(tableSnapshot.getVersion(), activeFiles);
@@ -414,8 +470,20 @@ public class TransactionLogAccess
             TupleDomain<DeltaLakeColumnHandle> partitionConstraint,
             Predicate<String> addStatsMinMaxColumnFilter)
     {
-        List<Transaction> transactions = tableSnapshot.getTransactions();
         TrinoFileSystem fileSystem = fileSystemFactory.create(session);
+        return loadActiveFiles(session, fileSystem, tableSnapshot, metadataEntry, protocolEntry, partitionConstraint, addStatsMinMaxColumnFilter);
+    }
+
+    private Stream<AddFileEntry> loadActiveFiles(
+            ConnectorSession session,
+            TrinoFileSystem fileSystem,
+            TableSnapshot tableSnapshot,
+            MetadataEntry metadataEntry,
+            ProtocolEntry protocolEntry,
+            TupleDomain<DeltaLakeColumnHandle> partitionConstraint,
+            Predicate<String> addStatsMinMaxColumnFilter)
+    {
+        List<Transaction> transactions = tableSnapshot.getTransactions();
         try (Stream<DeltaLakeTransactionLogEntry> checkpointEntries = tableSnapshot.getCheckpointTransactionLogEntries(
                 session,
                 ImmutableSet.of(ADD),
@@ -498,23 +566,30 @@ public class TransactionLogAccess
 
     public MetadataAndProtocolEntries getMetadataAndProtocolEntry(ConnectorSession session, TableSnapshot tableSnapshot)
     {
+        return getMetadataAndProtocolEntry(session, tableSnapshot, fileSystemFactory.create(session));
+    }
+
+    /**
+     * Overload that accepts a pre-created credential-aware file system for UC credential vending.
+     */
+    public MetadataAndProtocolEntries getMetadataAndProtocolEntry(ConnectorSession session, TableSnapshot tableSnapshot, TrinoFileSystem fileSystem)
+    {
         if (tableSnapshot.getCachedMetadata().isEmpty() && tableSnapshot.getCachedProtocol().isEmpty()) {
-            return getLatestMetadataAndProtocolEntry(session, tableSnapshot);
+            return getLatestMetadataAndProtocolEntry(session, tableSnapshot, fileSystem);
         }
 
         if (tableSnapshot.getCachedMetadata().isEmpty()) {
-            getMetadataEntry(session, tableSnapshot);
+            getMetadataEntry(session, tableSnapshot, fileSystem);
         }
         else if (tableSnapshot.getCachedProtocol().isEmpty()) {
-            getProtocolEntry(session, tableSnapshot);
+            getProtocolEntry(session, tableSnapshot, fileSystem);
         }
 
         return new MetadataAndProtocolEntries(tableSnapshot.getCachedMetadata(), tableSnapshot.getCachedProtocol());
     }
 
-    private MetadataAndProtocolEntries getLatestMetadataAndProtocolEntry(ConnectorSession session, TableSnapshot tableSnapshot)
+    private MetadataAndProtocolEntries getLatestMetadataAndProtocolEntry(ConnectorSession session, TableSnapshot tableSnapshot, TrinoFileSystem fileSystem)
     {
-        TrinoFileSystem fileSystem = fileSystemFactory.create(session);
         Optional<MetadataEntry> latestMetadataEntry = Optional.empty();
         Optional<ProtocolEntry> latestProtocolEntry = Optional.empty();
         for (Transaction transaction : tableSnapshot.getTransactions().reversed()) {
@@ -562,7 +637,11 @@ public class TransactionLogAccess
 
     public ProtocolEntry getProtocolEntry(ConnectorSession session, TableSnapshot tableSnapshot)
     {
-        TrinoFileSystem fileSystem = fileSystemFactory.create(session);
+        return getProtocolEntry(session, tableSnapshot, fileSystemFactory.create(session));
+    }
+
+    public ProtocolEntry getProtocolEntry(ConnectorSession session, TableSnapshot tableSnapshot, TrinoFileSystem fileSystem)
+    {
         if (tableSnapshot.getCachedProtocol().isEmpty()) {
             Optional<ProtocolEntry> latestProtocolEntry = tableSnapshot.getTransactions().reversed().stream()
                     .map(transaction -> transaction.transactionEntries().getMetadataAndProtocol(fileSystem))

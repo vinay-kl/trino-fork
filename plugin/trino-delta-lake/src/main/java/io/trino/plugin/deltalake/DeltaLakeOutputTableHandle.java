@@ -13,7 +13,9 @@
  */
 package io.trino.plugin.deltalake;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.google.common.collect.ImmutableList;
+import io.trino.plugin.deltalake.metastore.VendedCredentialsHandle;
 import io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.ColumnMappingMode;
 import io.trino.plugin.deltalake.transactionlog.ProtocolEntry;
 import io.trino.spi.connector.ConnectorOutputTableHandle;
@@ -27,6 +29,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.plugin.deltalake.DeltaLakeColumnType.PARTITION_KEY;
 import static java.util.Objects.requireNonNull;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record DeltaLakeOutputTableHandle(
         String schemaName,
         String tableName,
@@ -42,7 +45,8 @@ public record DeltaLakeOutputTableHandle(
         OptionalInt maxColumnId,
         boolean replace,
         OptionalLong readVersion,
-        ProtocolEntry protocolEntry)
+        ProtocolEntry protocolEntry,
+        VendedCredentialsHandle credentialsHandle)
         implements ConnectorOutputTableHandle
 {
     public DeltaLakeOutputTableHandle
@@ -59,6 +63,10 @@ public record DeltaLakeOutputTableHandle(
         requireNonNull(maxColumnId, "maxColumnId is null");
         requireNonNull(readVersion, "readVersion is null");
         requireNonNull(protocolEntry, "protocolEntry is null");
+        // Backward compat: old serialized handles from rolling restart won't have credentialsHandle
+        if (credentialsHandle == null) {
+            credentialsHandle = VendedCredentialsHandle.empty(location);
+        }
     }
 
     public List<String> partitionedBy()
@@ -67,5 +75,15 @@ public record DeltaLakeOutputTableHandle(
                 .filter(column -> column.columnType() == PARTITION_KEY)
                 .map(DeltaLakeColumnHandle::columnName)
                 .collect(toImmutableList());
+    }
+
+    public VendedCredentialsHandle toCredentialsHandle()
+    {
+        return credentialsHandle;
+    }
+
+    public VendedCredentialsHandle toWriteCredentialsHandle()
+    {
+        return credentialsHandle.withOperationType(VendedCredentialsHandle.READ_WRITE);
     }
 }

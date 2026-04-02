@@ -156,17 +156,17 @@ public class CheckpointWriter
         PageBuilder pageBuilder = new PageBuilder(columnTypes);
 
         try (CheckpointPageWriter writer = new CheckpointPageWriter(parquetWriter, pageBuilder)) {
-            writer.addEntry(_ -> writeMetadataEntry(pageBuilder, metadataEntryType, entries.metadataEntry()));
-            writer.addEntry(_ -> writeProtocolEntry(pageBuilder, protocolEntryType, entries.protocolEntry()));
+            writer.addEntry( _ -> writeMetadataEntry(pageBuilder, metadataEntryType, entries.metadataEntry()));
+            writer.addEntry( _ -> writeProtocolEntry(pageBuilder, protocolEntryType, entries.protocolEntry()));
             for (TransactionEntry transactionEntry : entries.transactionEntries()) {
-                writer.addEntry(_ -> writeTransactionEntry(pageBuilder, txnEntryType, transactionEntry));
+                writer.addEntry( _ -> writeTransactionEntry(pageBuilder, txnEntryType, transactionEntry));
             }
             List<DeltaLakeColumnHandle> partitionColumns = extractPartitionColumns(entries.metadataEntry(), entries.protocolEntry(), typeManager);
             List<RowType.Field> partitionValuesParsedFieldTypes = partitionColumns.stream()
                     .map(column -> RowType.field(column.basePhysicalColumnName(), column.type()))
                     .collect(toImmutableList());
             for (AddFileEntry addFileEntry : entries.addFileEntries()) {
-                writer.addEntry(_ -> writeAddFileEntry(
+                writer.addEntry( _ -> writeAddFileEntry(
                         pageBuilder,
                         addEntryType,
                         addFileEntry,
@@ -178,7 +178,7 @@ public class CheckpointWriter
                         writeStatsAsStruct));
             }
             for (RemoveFileEntry removeFileEntry : entries.removeFileEntries()) {
-                writer.addEntry(_ -> writeRemoveFileEntry(pageBuilder, removeEntryType, removeFileEntry));
+                writer.addEntry( _ -> writeRemoveFileEntry(pageBuilder, removeEntryType, removeFileEntry));
             }
         }
         // Not writing commit infos for now. DB does not keep them in the checkpoints by default

@@ -15,7 +15,7 @@ package io.trino.plugin.deltalake;
 
 import com.google.common.collect.ImmutableList;
 import io.trino.filesystem.TrinoFileSystem;
-import io.trino.filesystem.TrinoFileSystemFactory;
+import io.trino.plugin.deltalake.metastore.DeltaMetastoreTable;
 import io.trino.plugin.deltalake.transactionlog.CommitInfoEntry;
 import io.trino.plugin.deltalake.transactionlog.DeltaLakeTransactionLogEntry;
 import io.trino.plugin.deltalake.transactionlog.Transaction;
@@ -46,14 +46,14 @@ public class DeltaLakeHistoryTable
 {
     public DeltaLakeHistoryTable(
             SchemaTableName tableName,
-            String tableLocation,
-            TrinoFileSystemFactory fileSystemFactory,
+            DeltaMetastoreTable table,
+            DeltaLakeFileSystemFactory fileSystemFactory,
             TransactionLogAccess transactionLogAccess,
             TypeManager typeManager)
     {
         super(
                 tableName,
-                tableLocation,
+                table,
                 fileSystemFactory,
                 transactionLogAccess,
                 typeManager,

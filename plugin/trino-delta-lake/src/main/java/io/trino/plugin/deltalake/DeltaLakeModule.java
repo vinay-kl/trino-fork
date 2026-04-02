@@ -18,6 +18,7 @@ import com.google.inject.Provider;
 import com.google.inject.Scopes;
 import com.google.inject.multibindings.Multibinder;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
+import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.filesystem.cache.CacheKeyProvider;
 import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
 import io.trino.plugin.base.security.ConnectorAccessControlModule;
@@ -25,7 +26,11 @@ import io.trino.plugin.base.session.SessionPropertiesProvider;
 import io.trino.plugin.deltalake.cache.DeltaLakeCacheKeyProvider;
 import io.trino.plugin.deltalake.functions.tablechanges.TableChangesFunctionProvider;
 import io.trino.plugin.deltalake.functions.tablechanges.TableChangesProcessorProvider;
+import io.trino.plugin.deltalake.metastore.DeltaLakeMetastoreFactory;
 import io.trino.plugin.deltalake.metastore.DeltaLakeTableMetadataScheduler;
+import io.trino.plugin.deltalake.metastore.HiveBackedDeltaLakeMetastoreFactory;
+import io.trino.plugin.deltalake.metastore.NoOpVendedCredentialsProvider;
+import io.trino.plugin.deltalake.metastore.VendedCredentialsProvider;
 import io.trino.plugin.deltalake.procedure.DropExtendedStatsProcedure;
 import io.trino.plugin.deltalake.procedure.FlushMetadataCacheProcedure;
 import io.trino.plugin.deltalake.procedure.OptimizeTableProcedure;
@@ -99,6 +104,8 @@ public class DeltaLakeModule
         binder.bind(ConnectorNodePartitioningProvider.class).to(DeltaLakeNodePartitioningProvider.class).in(Scopes.SINGLETON);
 
         binder.bind(DeltaLakeMetadataFactory.class).in(Scopes.SINGLETON);
+        newOptionalBinder(binder, DeltaLakeMetastoreFactory.class)
+                .setDefault().to(HiveBackedDeltaLakeMetastoreFactory.class).in(Scopes.SINGLETON);
         binder.bind(CachingExtendedStatisticsAccess.class).in(Scopes.SINGLETON);
         binder.bind(ExtendedStatisticsAccess.class).to(CachingExtendedStatisticsAccess.class).in(Scopes.SINGLETON);
         binder.bind(ExtendedStatisticsAccess.class).annotatedWith(ForCachingExtendedStatisticsAccess.class).to(MetaDirStatisticsAccess.class).in(Scopes.SINGLETON);
@@ -140,6 +147,11 @@ public class DeltaLakeModule
         binder.bind(TableChangesProcessorProvider.class).in(Scopes.SINGLETON);
 
         newOptionalBinder(binder, CacheKeyProvider.class).setBinding().to(DeltaLakeCacheKeyProvider.class).in(Scopes.SINGLETON);
+
+        newOptionalBinder(binder, DeltaLakeFileSystemFactory.class).setDefault().to(DefaultDeltaLakeFileSystemFactory.class).in(Scopes.SINGLETON);
+        newOptionalBinder(binder, VendedCredentialsProvider.class).setDefault().to(NoOpVendedCredentialsProvider.class).in(Scopes.SINGLETON);
+
+
 
         binder.install(new DeltaLakeExecutorModule());
     }

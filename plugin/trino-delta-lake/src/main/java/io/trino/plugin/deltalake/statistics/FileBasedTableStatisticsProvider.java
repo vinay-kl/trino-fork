@@ -16,8 +16,10 @@ package io.trino.plugin.deltalake.statistics;
 import com.google.common.collect.ImmutableSet;
 import com.google.inject.Inject;
 import io.trino.filesystem.Location;
+import io.trino.filesystem.TrinoFileSystem;
 import io.trino.plugin.deltalake.DeltaLakeColumnHandle;
 import io.trino.plugin.deltalake.DeltaLakeColumnMetadata;
+import io.trino.plugin.deltalake.DeltaLakeFileSystemFactory;
 import io.trino.plugin.deltalake.DeltaLakeTableHandle;
 import io.trino.plugin.deltalake.transactionlog.AddFileEntry;
 import io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport;
@@ -69,16 +71,19 @@ public class FileBasedTableStatisticsProvider
 {
     private final TypeManager typeManager;
     private final TransactionLogAccess transactionLogAccess;
+    private final DeltaLakeFileSystemFactory fileSystemFactory;
     private final CachingExtendedStatisticsAccess statisticsAccess;
 
     @Inject
     public FileBasedTableStatisticsProvider(
             TypeManager typeManager,
             TransactionLogAccess transactionLogAccess,
+            DeltaLakeFileSystemFactory fileSystemFactory,
             CachingExtendedStatisticsAccess statisticsAccess)
     {
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
         this.transactionLogAccess = requireNonNull(transactionLogAccess, "transactionLogAccess is null");
+        this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.statisticsAccess = requireNonNull(statisticsAccess, "statisticsAccess is null");
     }
 
@@ -219,7 +224,8 @@ public class FileBasedTableStatisticsProvider
 
         Optional<ExtendedStatistics> statistics = Optional.empty();
         if (isExtendedStatisticsEnabled(session)) {
-            statistics = statisticsAccess.readExtendedStatistics(session, tableHandle.getSchemaTableName(), tableHandle.getLocation());
+            TrinoFileSystem fileSystem = fileSystemFactory.create(session, tableHandle);
+            statistics = statisticsAccess.readExtendedStatistics(fileSystem, session, tableHandle.getSchemaTableName(), tableHandle.getLocation());
         }
 
         for (DeltaLakeColumnHandle column : columns) {

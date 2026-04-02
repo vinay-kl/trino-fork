@@ -27,6 +27,15 @@ public interface TransactionLogSynchronizer
     void write(ConnectorSession session, String clusterId, Location newLogEntryPath, byte[] entryContents);
 
     /**
+     * Performs atomic write of transaction log entry file using a credential-aware file system
+     * derived from the table location.
+     */
+    default void write(ConnectorSession session, String clusterId, Location newLogEntryPath, byte[] entryContents, String tableLocation)
+    {
+        write(session, clusterId, newLogEntryPath, entryContents);
+    }
+
+    /**
      * Whether or not writes using this Synchronizer need to be enabled with the "delta.enable-non-concurrent-writes" config property.
      *
      * @return False if collision detection for writes from multiple clusters is supported, else true.

@@ -18,7 +18,6 @@ import com.google.inject.Inject;
 import io.airlift.json.JsonCodec;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
-import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.filesystem.TrinoInputFile;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ConnectorSession;
@@ -44,34 +43,31 @@ public class MetaDirStatisticsAccess
     public static final String STARBURST_META_DIR = TRANSACTION_LOG_DIRECTORY + "/_starburst_meta";
     private static final String STARBURST_STATISTICS_FILE = "extendeded_stats.json";
 
-    private final TrinoFileSystemFactory fileSystemFactory;
     private final JsonCodec<ExtendedStatistics> statisticsCodec;
 
     @Inject
-    public MetaDirStatisticsAccess(
-            TrinoFileSystemFactory fileSystemFactory,
-            JsonCodec<ExtendedStatistics> statisticsCodec)
+    public MetaDirStatisticsAccess(JsonCodec<ExtendedStatistics> statisticsCodec)
     {
-        this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.statisticsCodec = requireNonNull(statisticsCodec, "statisticsCodec is null");
     }
 
     @Override
     public Optional<ExtendedStatistics> readExtendedStatistics(
+            TrinoFileSystem fileSystem,
             ConnectorSession session,
             SchemaTableName schemaTableName,
             String tableLocation)
     {
         Location location = Location.of(tableLocation);
-        return readExtendedStatistics(session, location, STATISTICS_META_DIR, STATISTICS_FILE)
-                .or(() -> readExtendedStatistics(session, location, STARBURST_META_DIR, STARBURST_STATISTICS_FILE));
+        return readExtendedStatistics(fileSystem, location, STATISTICS_META_DIR, STATISTICS_FILE)
+                .or(() -> readExtendedStatistics(fileSystem, location, STARBURST_META_DIR, STARBURST_STATISTICS_FILE));
     }
 
-    private Optional<ExtendedStatistics> readExtendedStatistics(ConnectorSession session, Location tableLocation, String statisticsDirectory, String statisticsFile)
+    private Optional<ExtendedStatistics> readExtendedStatistics(TrinoFileSystem fileSystem, Location tableLocation, String statisticsDirectory, String statisticsFile)
     {
         try {
             Location statisticsPath = tableLocation.appendPath(statisticsDirectory).appendPath(statisticsFile);
-            TrinoInputFile inputFile = fileSystemFactory.create(session).newInputFile(statisticsPath);
+            TrinoInputFile inputFile = fileSystem.newInputFile(statisticsPath);
             try (InputStream inputStream = inputFile.newStream()) {
                 return Optional.of(decodeAndRethrowIfNotFound(statisticsCodec, inputStream));
             }
@@ -86,6 +82,7 @@ public class MetaDirStatisticsAccess
 
     @Override
     public void updateExtendedStatistics(
+            TrinoFileSystem fileSystem,
             ConnectorSession session,
             SchemaTableName schemaTableName,
             String tableLocation,
@@ -94,7 +91,6 @@ public class MetaDirStatisticsAccess
         try {
             Location statisticsPath = Location.of(tableLocation).appendPath(STATISTICS_META_DIR).appendPath(STATISTICS_FILE);
 
-            TrinoFileSystem fileSystem = fileSystemFactory.create(session);
             fileSystem.newOutputFile(statisticsPath).createOrOverwrite(statisticsCodec.toJsonBytes(statistics));
 
             // Remove outdated Starburst stats file, if it exists.
@@ -109,11 +105,10 @@ public class MetaDirStatisticsAccess
     }
 
     @Override
-    public void deleteExtendedStatistics(ConnectorSession session, SchemaTableName schemaTableName, String tableLocation)
+    public void deleteExtendedStatistics(TrinoFileSystem fileSystem, ConnectorSession session, SchemaTableName schemaTableName, String tableLocation)
     {
         Location statisticsPath = Location.of(tableLocation).appendPath(STATISTICS_META_DIR).appendPath(STATISTICS_FILE);
         try {
-            TrinoFileSystem fileSystem = fileSystemFactory.create(session);
             if (fileSystem.newInputFile(statisticsPath).exists()) {
                 fileSystem.deleteFile(statisticsPath);
             }

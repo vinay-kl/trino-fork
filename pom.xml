@@ -59,6 +59,7 @@
         <module>lib/trino-parquet</module>
         <module>lib/trino-plugin-toolkit</module>
         <module>lib/trino-record-decoder</module>
+        <module>lib/trino-unity-catalog</module>
         <module>plugin/trino-ai-functions</module>
         <module>plugin/trino-base-jdbc</module>
         <module>plugin/trino-bigquery</module>
@@ -1334,6 +1335,12 @@
                 <artifactId>trino-plugin-toolkit</artifactId>
                 <version>${project.version}</version>
                 <type>test-jar</type>
+            </dependency>
+
+            <dependency>
+                <groupId>io.trino</groupId>
+                <artifactId>trino-unity-catalog</artifactId>
+                <version>${project.version}</version>
             </dependency>
 
             <dependency>

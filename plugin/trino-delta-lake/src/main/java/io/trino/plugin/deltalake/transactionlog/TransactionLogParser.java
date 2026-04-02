@@ -174,7 +174,7 @@ public final class TransactionLogParser
         try {
             localDateTime = LocalDateTime.parse(timestamp, PARTITION_TIMESTAMP_FORMATTER);
         }
-        catch (DateTimeParseException ignored) {
+        catch (DateTimeParseException _) {
             // TODO: avoid this exception-driven logic
             // type widening date->timestamp has occurred and this value is of date format
             localDateTime = LocalDate.parse(timestamp).atTime(LocalTime.MIN);

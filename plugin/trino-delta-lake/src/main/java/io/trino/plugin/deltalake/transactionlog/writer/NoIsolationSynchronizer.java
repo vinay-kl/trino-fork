@@ -16,7 +16,7 @@ package io.trino.plugin.deltalake.transactionlog.writer;
 import com.google.inject.Inject;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
-import io.trino.filesystem.TrinoFileSystemFactory;
+import io.trino.plugin.deltalake.DeltaLakeFileSystemFactory;
 import io.trino.filesystem.TrinoOutputFile;
 import io.trino.spi.connector.ConnectorSession;
 
@@ -29,10 +29,10 @@ import static java.util.Objects.requireNonNull;
 public class NoIsolationSynchronizer
         implements TransactionLogSynchronizer
 {
-    private final TrinoFileSystemFactory fileSystemFactory;
+    private final DeltaLakeFileSystemFactory fileSystemFactory;
 
     @Inject
-    public NoIsolationSynchronizer(TrinoFileSystemFactory fileSystemFactory)
+    public NoIsolationSynchronizer(DeltaLakeFileSystemFactory fileSystemFactory)
     {
         this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
     }
@@ -42,6 +42,19 @@ public class NoIsolationSynchronizer
             throws UncheckedIOException
     {
         TrinoFileSystem fileSystem = fileSystemFactory.create(session);
+        writeWithFileSystem(fileSystem, newLogEntryPath, entryContents);
+    }
+
+    @Override
+    public void write(ConnectorSession session, String clusterId, Location newLogEntryPath, byte[] entryContents, String tableLocation)
+            throws UncheckedIOException
+    {
+        TrinoFileSystem fileSystem = fileSystemFactory.create(session, tableLocation);
+        writeWithFileSystem(fileSystem, newLogEntryPath, entryContents);
+    }
+
+    private static void writeWithFileSystem(TrinoFileSystem fileSystem, Location newLogEntryPath, byte[] entryContents)
+    {
         try {
             TrinoOutputFile outputFile = fileSystem.newOutputFile(newLogEntryPath);
             try (OutputStream outputStream = outputFile.create()) {

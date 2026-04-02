@@ -23,7 +23,9 @@ import io.trino.filesystem.hdfs.HdfsFileSystemFactory;
 import io.trino.filesystem.tracing.TracingFileSystemFactory;
 import io.trino.parquet.ParquetReaderOptions;
 import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
+import io.trino.plugin.deltalake.DefaultDeltaLakeFileSystemFactory;
 import io.trino.plugin.deltalake.DeltaLakeConfig;
+import io.trino.plugin.deltalake.metastore.NoOpVendedCredentialsProvider;
 import io.trino.plugin.deltalake.transactionlog.checkpoint.CheckpointSchemaManager;
 import io.trino.plugin.deltalake.transactionlog.checkpoint.LastCheckpoint;
 import io.trino.plugin.hive.parquet.ParquetReaderConfig;
@@ -146,7 +148,7 @@ public class TestTableSnapshot
                 new CheckpointSchemaManager(typeManager),
                 new DeltaLakeConfig(),
                 new FileFormatDataSourceStats(),
-                tracingFileSystemFactory,
+                new DefaultDeltaLakeFileSystemFactory(tracingFileSystemFactory, new NoOpVendedCredentialsProvider()),
                 new ParquetReaderConfig(),
                 executorService);
         MetadataEntry metadataEntry = transactionLogAccess.getMetadataEntry(SESSION, tableSnapshot);

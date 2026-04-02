@@ -15,9 +15,11 @@ package io.trino.plugin.deltalake;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.units.DataSize;
+import io.trino.plugin.deltalake.metastore.VendedCredentialsHandle;
 import io.trino.plugin.deltalake.transactionlog.MetadataEntry;
 import io.trino.plugin.deltalake.transactionlog.ProtocolEntry;
 import io.trino.spi.connector.SchemaTableName;
@@ -31,7 +33,9 @@ import java.util.Set;
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.trino.plugin.deltalake.DeltaLakeTableHandle.WriteType.UPDATE;
 import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class DeltaLakeTableHandle
         implements LocatedTableHandle
 {
@@ -46,6 +50,8 @@ public class DeltaLakeTableHandle
     private final String tableName;
     private final boolean managed;
     private final String location;
+    private final boolean catalogOwned;
+    private final Optional<String> tableId;
     private final MetadataEntry metadataEntry;
     private final ProtocolEntry protocolEntry;
     private final TupleDomain<DeltaLakeColumnHandle> enforcedPartitionConstraint;
@@ -76,6 +82,8 @@ public class DeltaLakeTableHandle
             @JsonProperty("tableName") String tableName,
             @JsonProperty("managed") boolean managed,
             @JsonProperty("location") String location,
+            @JsonProperty("catalogOwned") boolean catalogOwned,
+            @JsonProperty("tableId") Optional<String> tableId,
             @JsonProperty("metadataEntry") MetadataEntry metadataEntry,
             @JsonProperty("protocolEntry") ProtocolEntry protocolEntry,
             @JsonProperty("enforcedPartitionConstraint") TupleDomain<DeltaLakeColumnHandle> enforcedPartitionConstraint,
@@ -93,6 +101,8 @@ public class DeltaLakeTableHandle
                 tableName,
                 managed,
                 location,
+                catalogOwned,
+                requireNonNullElse(tableId, Optional.empty()),
                 metadataEntry,
                 protocolEntry,
                 enforcedPartitionConstraint,
@@ -115,6 +125,8 @@ public class DeltaLakeTableHandle
             String tableName,
             boolean managed,
             String location,
+            boolean catalogOwned,
+            Optional<String> tableId,
             MetadataEntry metadataEntry,
             ProtocolEntry protocolEntry,
             TupleDomain<DeltaLakeColumnHandle> enforcedPartitionConstraint,
@@ -135,6 +147,8 @@ public class DeltaLakeTableHandle
         this.tableName = requireNonNull(tableName, "tableName is null");
         this.managed = managed;
         this.location = requireNonNull(location, "location is null");
+        this.catalogOwned = catalogOwned;
+        this.tableId = requireNonNull(tableId, "tableId is null");
         this.metadataEntry = requireNonNull(metadataEntry, "metadataEntry is null");
         this.protocolEntry = requireNonNull(protocolEntry, "protocolEntry is null");
         this.enforcedPartitionConstraint = requireNonNull(enforcedPartitionConstraint, "enforcedPartitionConstraint is null");
@@ -161,6 +175,8 @@ public class DeltaLakeTableHandle
                 tableName,
                 managed,
                 location,
+                catalogOwned,
+                tableId,
                 metadataEntry,
                 protocolEntry,
                 enforcedPartitionConstraint,
@@ -185,6 +201,8 @@ public class DeltaLakeTableHandle
                 tableName,
                 managed,
                 location,
+                catalogOwned,
+                tableId,
                 metadataEntry,
                 protocolEntry,
                 enforcedPartitionConstraint,
@@ -247,6 +265,29 @@ public class DeltaLakeTableHandle
     public String getLocation()
     {
         return location;
+    }
+
+    @JsonProperty
+    public boolean isCatalogOwned()
+    {
+        return catalogOwned;
+    }
+
+    @JsonProperty
+    public Optional<String> getTableId()
+    {
+        return tableId;
+    }
+
+    @Override
+    public VendedCredentialsHandle toCredentialsHandle()
+    {
+        return new VendedCredentialsHandle(catalogOwned, managed, location, tableId, VendedCredentialsHandle.READ, Optional.empty());
+    }
+
+    public VendedCredentialsHandle toWriteCredentialsHandle()
+    {
+        return new VendedCredentialsHandle(catalogOwned, managed, location, tableId, VendedCredentialsHandle.READ_WRITE, Optional.empty());
     }
 
     @JsonProperty

@@ -15,6 +15,10 @@
 package io.trino.plugin.deltalake.transactionlog.writer;
 
 import com.google.inject.Inject;
+import io.trino.plugin.deltalake.DeltaLakeTableHandle;
+import io.trino.plugin.deltalake.metastore.VendedCredentialsHandle;
+import io.trino.plugin.deltalake.transactionlog.MetadataEntry;
+import io.trino.plugin.deltalake.transactionlog.ProtocolEntry;
 import io.trino.spi.connector.ConnectorSession;
 
 import static java.util.Objects.requireNonNull;
@@ -38,5 +42,28 @@ public class TransactionLogWriterFactory
     public TransactionLogWriter newWriterWithoutTransactionIsolation(ConnectorSession session, String tableLocation)
     {
         return new TransactionLogWriter(synchronizerManager.getNoIsolationSynchronizer(), session, tableLocation);
+    }
+
+    public TransactionLogWriter createWriter(ConnectorSession session, DeltaLakeTableHandle tableHandle)
+    {
+        return createWriter(session, tableHandle.location(), tableHandle.getMetadataEntry(), tableHandle.getProtocolEntry(), tableHandle.toWriteCredentialsHandle());
+    }
+
+    public TransactionLogWriter createWriter(ConnectorSession session, String tableLocation, MetadataEntry metadataEntry, ProtocolEntry protocolEntry, VendedCredentialsHandle credentialsHandle)
+    {
+        // Credentials are available for future use by credential-vending-aware writers
+        return newWriter(session, tableLocation);
+    }
+
+    public TransactionLogWriter createFileSystemWriter(ConnectorSession session, String tableLocation, VendedCredentialsHandle credentialsHandle)
+    {
+        // Credentials are available for future use by credential-vending-aware writers
+        return newWriter(session, tableLocation);
+    }
+
+    public TransactionLogWriter newWriterWithoutTransactionIsolation(ConnectorSession session, String tableLocation, VendedCredentialsHandle credentialsHandle)
+    {
+        // Credentials are available for future use by credential-vending-aware writers
+        return newWriterWithoutTransactionIsolation(session, tableLocation);
     }
 }

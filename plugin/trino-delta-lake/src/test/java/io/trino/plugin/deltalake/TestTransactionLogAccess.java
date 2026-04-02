@@ -24,6 +24,7 @@ import io.opentelemetry.sdk.trace.data.SpanData;
 import io.trino.filesystem.hdfs.HdfsFileSystemFactory;
 import io.trino.filesystem.tracing.TracingFileSystemFactory;
 import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
+import io.trino.plugin.deltalake.metastore.NoOpVendedCredentialsProvider;
 import io.trino.plugin.deltalake.transactionlog.AddFileEntry;
 import io.trino.plugin.deltalake.transactionlog.MetadataEntry;
 import io.trino.plugin.deltalake.transactionlog.ProtocolEntry;
@@ -135,7 +136,7 @@ public class TestTransactionLogAccess
                 new CheckpointSchemaManager(typeManager),
                 deltaLakeConfig,
                 fileFormatDataSourceStats,
-                tracingFileSystemFactory,
+                new DefaultDeltaLakeFileSystemFactory(tracingFileSystemFactory, new NoOpVendedCredentialsProvider()),
                 new ParquetReaderConfig(),
                 newDirectExecutorService());
 
@@ -144,6 +145,8 @@ public class TestTransactionLogAccess
                 tableName,
                 true,
                 "location",
+                false,
+                Optional.empty(),
                 new MetadataEntry("id", "test", "description", null, "", ImmutableList.of(), ImmutableMap.of(), 0),
                 new ProtocolEntry(1, 2, Optional.empty(), Optional.empty()),
                 TupleDomain.none(),

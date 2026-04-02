@@ -504,6 +504,8 @@ public class TestDeltaLakeMetadata
                 "test_table_name",
                 true,
                 "test_location",
+                false,
+                Optional.empty(),
                 createMetadataEntry(),
                 new ProtocolEntry(1, 2, Optional.empty(), Optional.empty()),
                 createConstrainedColumnsTuple(constrainedColumns),

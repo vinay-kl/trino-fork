@@ -19,7 +19,7 @@ import com.google.inject.Inject;
 import com.google.inject.Provider;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
-import io.trino.filesystem.TrinoFileSystemFactory;
+import io.trino.plugin.deltalake.DeltaLakeFileSystemFactory;
 import io.trino.metastore.PrincipalPrivileges;
 import io.trino.metastore.Table;
 import io.trino.plugin.base.util.UncheckedCloseable;
@@ -80,7 +80,7 @@ public class RegisterTableProcedure
     private final DeltaLakeMetadataFactory metadataFactory;
     private final TransactionLogAccess transactionLogAccess;
     private final CachingExtendedStatisticsAccess statisticsAccess;
-    private final TrinoFileSystemFactory fileSystemFactory;
+    private final DeltaLakeFileSystemFactory fileSystemFactory;
     private final boolean registerTableProcedureEnabled;
 
     @Inject
@@ -88,7 +88,7 @@ public class RegisterTableProcedure
             DeltaLakeMetadataFactory metadataFactory,
             TransactionLogAccess transactionLogAccess,
             CachingExtendedStatisticsAccess statisticsAccess,
-            TrinoFileSystemFactory fileSystemFactory,
+            DeltaLakeFileSystemFactory fileSystemFactory,
             DeltaLakeConfig deltaLakeConfig)
     {
         this.metadataFactory = requireNonNull(metadataFactory, "metadataFactory is null");
@@ -153,7 +153,7 @@ public class RegisterTableProcedure
                 throw new SchemaNotFoundException(schemaTableName.getSchemaName());
             }
 
-            TrinoFileSystem fileSystem = fileSystemFactory.create(session);
+            TrinoFileSystem fileSystem = fileSystemFactory.create(session, tableLocation);
             try {
                 Location transactionLogDir = Location.of(getTransactionLogDir(tableLocation));
                 if (!fileSystem.listFiles(transactionLogDir).hasNext()) {

@@ -107,7 +107,7 @@ public class TransactionLogWriter
         }
 
         String clusterId = commitInfoEntry.get().getCommitInfo().clusterId();
-        logSynchronizer.write(session, clusterId, logEntry, bos.toByteArray());
+        logSynchronizer.write(session, clusterId, logEntry, bos.toByteArray(), tableLocation);
     }
 
     private void writeEntry(OutputStream outputStream, DeltaLakeTransactionLogEntry deltaLakeTransactionLogEntry)
